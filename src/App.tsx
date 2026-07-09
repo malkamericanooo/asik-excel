@@ -196,11 +196,11 @@ function App() {
       return;
     }
 
-    // Check for data quality issues
-    const totalLogIssues = logs.filter((l) => l.status !== 'success').length;
-    if (totalLogIssues > 0 && !pendingExport) {
+    // Only warn if there are actual errors (not just parsing warnings)
+    const totalErrors = logs.filter((l) => l.status === 'error').length;
+    if (totalErrors > 0 && !pendingExport) {
       setValidationMessage(
-        `${totalLogIssues} file upload memiliki masalah. Data akan tetap diproses. Lanjutkan export?`,
+        `${totalErrors} file upload gagal diproses. Data yang berhasil akan tetap diexport. Lanjutkan?`,
       );
       setPendingExport(true);
       setShowValidationModal(true);

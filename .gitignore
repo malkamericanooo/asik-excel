@@ -1,0 +1,11 @@
+node_modules/
+.pnpm-store/
+dist/
+.vercel/
+pnpm-lock.yaml
+package-lock.json
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.xlsx

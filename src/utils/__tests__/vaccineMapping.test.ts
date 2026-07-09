@@ -1,0 +1,33 @@
+import { describe, it, expect } from 'vitest';
+import { mapAntigenToVaccineKey } from '../vaccineMapping';
+
+describe('mapAntigenToVaccineKey', () => {
+  it('maps BCG - 1', () => expect(mapAntigenToVaccineKey('BCG - 1')).toBe('BCG'));
+  it('maps BCG uppercase', () => expect(mapAntigenToVaccineKey('BCG')).toBe('BCG'));
+  it('maps HB0 first dose (<24 jam)', () => expect(mapAntigenToVaccineKey('HB0 - 1')).toBe('HB0_24JAM'));
+  it('maps HB0 second dose (1-7 hari)', () => expect(mapAntigenToVaccineKey('HB0 - 2')).toBe('HB0_7HARI'));
+  it('maps Hepatitis B - 0 - 1', () => expect(mapAntigenToVaccineKey('HEPATITIS B - 0 - 1')).toBe('HB0_24JAM'));
+  it('maps DPT-HB-Hib - 1', () => expect(mapAntigenToVaccineKey('DPT-HB-Hib - 1')).toBe('DPT_1'));
+  it('maps DPT-HB-Hib - 2', () => expect(mapAntigenToVaccineKey('DPT-HB-Hib - 2')).toBe('DPT_2'));
+  it('maps DPT-HB-Hib - 3', () => expect(mapAntigenToVaccineKey('DPT-HB-Hib - 3')).toBe('DPT_3'));
+  it('maps DPT-HB-Hib - 4 (booster)', () => expect(mapAntigenToVaccineKey('DPT-HB-Hib - 4')).toBe('DPT_4'));
+  it('maps case-insensitive DPT', () => expect(mapAntigenToVaccineKey('dpt-hb-hib - 2')).toBe('DPT_2'));
+  it('maps IPV - 1', () => expect(mapAntigenToVaccineKey('IPV - 1')).toBe('IPV_1'));
+  it('maps IPV - 2', () => expect(mapAntigenToVaccineKey('IPV - 2')).toBe('IPV_2'));
+  it('maps PCV - 1', () => expect(mapAntigenToVaccineKey('PCV - 1')).toBe('PCV_1'));
+  it('maps PCV - 2', () => expect(mapAntigenToVaccineKey('PCV - 2')).toBe('PCV_2'));
+  it('maps PCV - 3', () => expect(mapAntigenToVaccineKey('PCV - 3')).toBe('PCV_3'));
+  it('maps ROTAVIRUS - 1', () => expect(mapAntigenToVaccineKey('ROTAVIRUS - 1')).toBe('ROTA_1'));
+  it('maps ROTA - 2', () => expect(mapAntigenToVaccineKey('ROTA - 2')).toBe('ROTA_2'));
+  it('maps ROTA - 3', () => expect(mapAntigenToVaccineKey('ROTA - 3')).toBe('ROTA_3'));
+  it('maps POLIO - 1', () => expect(mapAntigenToVaccineKey('POLIO - 1')).toBe('POLIO_1'));
+  it('maps POLIO - 2', () => expect(mapAntigenToVaccineKey('POLIO - 2')).toBe('POLIO_2'));
+  it('maps POLIO - 3', () => expect(mapAntigenToVaccineKey('POLIO - 3')).toBe('POLIO_3'));
+  it('maps POLIO - 4', () => expect(mapAntigenToVaccineKey('POLIO - 4')).toBe('POLIO_4'));
+  it('maps Campak-Rubella - 1', () => expect(mapAntigenToVaccineKey('Campak-Rubella - 1')).toBe('MR_1'));
+  it('maps Campak-Rubella - 2 as Booster MR', () => expect(mapAntigenToVaccineKey('Campak-Rubella - 2')).toBe('BOOSTER_MR'));
+  it('maps BOOSTER MR', () => expect(mapAntigenToVaccineKey('BOOSTER MR')).toBe('BOOSTER_MR'));
+  it('returns null for IBL', () => expect(mapAntigenToVaccineKey('IMUNISASI BADUTA LENGKAP - 1')).toBeNull());
+  it('returns null for unknown antigen', () => expect(mapAntigenToVaccineKey('ANTIGEN TIDAK DIKENAL')).toBeNull());
+  it('returns null for empty string', () => expect(mapAntigenToVaccineKey('')).toBeNull());
+});

@@ -10,3 +10,5 @@ package-lock.json
 .idea/
 *.xlsx
 !public/templates/master-template.xlsx
+
+.env.local

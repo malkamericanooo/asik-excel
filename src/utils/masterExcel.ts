@@ -3,6 +3,7 @@ import type { ChildRecord, MasterData, SheetName, VaccineKey } from '../types';
 import { ALL_SHEETS } from '../types';
 import { VACCINE_ORDER, VACCINE_COLUMN_INDEX } from './vaccineMapping';
 import { isInMonthYear, BULAN_INDONESIA } from './dateUtils';
+import { sanitizeForExcel } from './sanitizer';
 
 export const FIRST_DATA_ROW = 6;
 export const TOTAL_COLS = 49;
@@ -61,10 +62,11 @@ function setCell(
   numFmt?: string,
 ): void {
   const addr = XLSX.utils.encode_cell({ r, c });
-  const t = typeof value === 'number' ? 'n' : typeof value === 'string' && value !== '' ? 's' : 'z';
+  const sanitized = typeof value === 'string' ? sanitizeForExcel(value) : value;
+  const t = typeof sanitized === 'number' ? 'n' : typeof sanitized === 'string' && sanitized !== '' ? 's' : 'z';
   const base = styleTemplate ? { ...styleTemplate } : (ws[addr] ?? { v: '', t: 'z' });
   delete base.f;
-  ws[addr] = { ...base, v: value ?? '', t };
+  ws[addr] = { ...base, v: sanitized ?? '', t };
   if (numFmt) ws[addr].z = numFmt;
 }
 

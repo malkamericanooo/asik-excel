@@ -60,24 +60,42 @@ export function parseAndMergeAsikFile(
   const headerRow = rows[0] as string[];
   const colIdx: Record<string, number> = {};
   headerRow.forEach((h, i) => {
-    if (h) colIdx[String(h).trim()] = i;
+    if (h) colIdx[String(h).trim().toLowerCase()] = i;
   });
 
+  // Normalize search keys to lowercase for fuzzy matching
+  function findColHeuristic(candidates: string[]): number {
+    for (const c of candidates) {
+      const key = c.toLowerCase();
+      if (key in colIdx) return colIdx[key];
+    }
+    // Fuzzy search: try partial match if exact failed
+    for (const c of candidates) {
+      const key = c.toLowerCase();
+      for (const [colKey, colIdxVal] of Object.entries(colIdx)) {
+        if (colKey.includes(key) || key.includes(colKey)) return colIdxVal;
+      }
+    }
+    return -1;
+  }
+
   const col = {
-    nama: findCol(colIdx, ['Nama Anak', 'NAMA ANAK', 'Nama']),
-    tglLahir: findCol(colIdx, ['Tanggal Lahir Anak', 'Tanggal Lahir', 'TGL LAHIR']),
-    jk: findCol(colIdx, ['Jenis Kelamin Anak', 'Jenis Kelamin', 'JK']),
-    namaOrtu: findCol(colIdx, ['Nama Orang Tua', 'NAMA ORANG TUA']),
-    kelurahan: findCol(colIdx, [
+    nama: findColHeuristic(['Nama Anak', 'NAMA ANAK', 'Nama']),
+    tglLahir: findColHeuristic(['Tanggal Lahir Anak', 'Tanggal Lahir', 'TGL LAHIR', 'TTL']),
+    jk: findColHeuristic(['Jenis Kelamin Anak', 'Jenis Kelamin', 'JK', 'KELAMIN']),
+    namaOrtu: findColHeuristic(['Nama Orang Tua', 'NAMA ORANG TUA', 'Ortu', 'ORANG TUA']),
+    kelurahan: findColHeuristic([
       'Klasifikasi Kelurahan',
       'Kelurahan atau Desa',
       'Kelurahan',
       'KELURAHAN',
+      'DESA',
+      'Alamat',
     ]),
-    antigen: findCol(colIdx, ['Nama Antigen', 'ANTIGEN', 'Antigen']),
-    tglImunisasi: findCol(colIdx, ['Tanggal Imunisasi', 'TGL IMUNISASI']),
-    status: findCol(colIdx, ['Status Imunisasi', 'Status', 'STATUS']),
-    nik: findCol(colIdx, ['NIK Anak', 'NIK', 'nik']),
+    antigen: findColHeuristic(['Nama Antigen', 'ANTIGEN', 'Antigen', 'Jenis Vaksin', 'Vaksin']),
+    tglImunisasi: findColHeuristic(['Tanggal Imunisasi', 'TGL IMUNISASI', 'Tgl Imunisasi', 'TANGGAL']),
+    status: findColHeuristic(['Status Imunisasi', 'Status', 'STATUS']),
+    nik: findColHeuristic(['NIK Anak', 'NIK', 'nik', 'N I K']),
   };
 
   const missing: string[] = [];
@@ -114,6 +132,11 @@ export function parseAndMergeAsikFile(
       result.skipped++;
       result.logs.push(`Baris ${i + 1}: data identitas tidak lengkap, dilewati.`);
       continue;
+    }
+
+    // Validate NIK: should be 16 digits if present
+    if (nikRaw && !/^\d{16}$/.test(nikRaw)) {
+      result.logs.push(`Baris ${i + 1}: NIK "${nikRaw}" tidak valid (harus 16 digit), akan tetap diproses.`);
     }
 
     const vaccineKey = resolveVaccineKey(antigenRaw, options.selectedVaccine);

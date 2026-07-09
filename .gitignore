@@ -9,3 +9,4 @@ package-lock.json
 .vscode/
 .idea/
 *.xlsx
+!public/templates/master-template.xlsx

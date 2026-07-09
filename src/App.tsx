@@ -12,7 +12,6 @@ import { FileDropzone } from './components/FileDropzone';
 import { PreviewTable } from './components/PreviewTable';
 import { NotificationModal } from './components/NotificationModal';
 import { StepIndicator } from './components/StepIndicator';
-import type { ColumnValidation, ValidationStatus } from './components/ValidationTable';
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - 2 + i);
@@ -230,26 +229,6 @@ function App() {
     setPendingExport(false);
     setDataCount(Object.fromEntries(ALL_SHEETS.map((s) => [s, 0])));
   }, []);
-
-  /** Build column validation data from logs and data quality */
-  const columnValidations: ColumnValidation[] = useMemo(() => {
-    if (totalChildren === 0) return [];
-    const cols = ['Nama Anak', 'JK', 'Tanggal Lahir', 'NIK', 'Nama Orang Tua', 'Alamat'];
-    return cols.map((col) => {
-      let emptyCount = 0;
-      let invalidCount = 0;
-      for (const child of allChildren) {
-        if (col === 'NIK' && child.nik && !/^\d{16}$/.test(child.nik)) invalidCount++;
-        if (col === 'Nama Anak' && !child.nama) emptyCount++;
-        if (col === 'JK' && !child.jk) emptyCount++;
-        if (col === 'Tanggal Lahir' && !child.tanggalLahirStr) emptyCount++;
-        if (col === 'Nama Orang Tua' && !child.namaOrangTua) emptyCount++;
-        if (col === 'Alamat' && !child.alamat) emptyCount++;
-      }
-      const status: ValidationStatus = invalidCount > 0 ? 'invalid' : emptyCount > 0 ? 'empty' : 'valid';
-      return { column: col, emptyCount, invalidCount, status };
-    });
-  }, [totalChildren, allChildren]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50">

@@ -134,9 +134,9 @@ export function parseAndMergeAsikFile(
       continue;
     }
 
-    // Validate NIK: should be 16 digits if present
-    if (nikRaw && !/^\d{16}$/.test(nikRaw)) {
-      result.logs.push(`Baris ${i + 1}: NIK "${nikRaw}" tidak valid (harus 16 digit), akan tetap diproses.`);
+    // NIK kadang diisi placeholder (000...), jadi hanya warning jika ada karakter non-digit
+    if (nikRaw && /[^0-9]/.test(nikRaw)) {
+      result.logs.push(`Baris ${i + 1}: NIK "${nikRaw}" mengandung karakter tidak dikenal, akan tetap diproses.`);
     }
 
     const vaccineKey = resolveVaccineKey(antigenRaw, options.selectedVaccine);

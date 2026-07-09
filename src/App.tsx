@@ -210,7 +210,7 @@ function App() {
     setIsExporting(true);
     setPendingExport(false);
     try {
-      const blob = buildMasterExcel(masterData, month, year, templateBuffer);
+      const blob = await buildMasterExcel(masterData, month, year, templateBuffer);
       const filename = `Master_Imunisasi_${BULAN_INDONESIA[month]}_${year}.xlsx`;
       downloadBlob(blob, filename);
     } catch (err) {

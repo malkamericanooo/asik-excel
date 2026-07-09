@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
 import type { ChildRecord, MasterData, SheetName, VaccineKey } from '../types';
 import { ALL_SHEETS } from '../types';
@@ -5,102 +6,19 @@ import { VACCINE_ORDER, VACCINE_COLUMN_INDEX } from './vaccineMapping';
 import { isInMonthYear, BULAN_INDONESIA } from './dateUtils';
 import { sanitizeForExcel } from './sanitizer';
 
-export const FIRST_DATA_ROW = 6; // xlsx 0-based — row 7 in Excel [unchanged]
-export const TOTAL_COLS = 49;
-const DATE_FMT = 'dd-mmm-yy';
-const SUMMARY_LABEL_COL = 6; // Column G (0-based)
+// ExcelJS uses 1-based indexing for both rows and columns
+const FIRST_DATA_ROW = 7; // Row 7 in Excel (1-based)
+const TOTAL_COLS = 49;
+const SUMMARY_LABEL_COL = 7; // Column G (1-based)
 
-/** Deep-clone a worksheet cell (value + style), without formulas. */
-function cloneCell(cell: XLSX.CellObject | undefined): XLSX.CellObject | undefined {
-  if (!cell) return undefined;
-  const cloned: XLSX.CellObject = { ...cell };
-  delete cloned.f;
-  if (cell.s) cloned.s = JSON.parse(JSON.stringify(cell.s));
-  return cloned;
-}
-
-/** Find the row index where the summary block starts ("Jumlah" in column G). */
+/** Find summary start row in xlsx WorkSheet (used by tests on output buffer). */
 export function findSummaryStartRow(ws: XLSX.WorkSheet): number {
   const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1:A1');
-  for (let r = FIRST_DATA_ROW; r <= range.e.r; r++) {
-    const cell = ws[XLSX.utils.encode_cell({ r, c: SUMMARY_LABEL_COL })];
+  for (let r = 6; r <= range.e.r; r++) {
+    const cell = ws[XLSX.utils.encode_cell({ r, c: 6 })];
     if (cell?.v && String(cell.v).startsWith('Jumlah')) return r;
   }
   return range.e.r - 3;
-}
-
-/** Extract the 4-row summary block (with styles) from a template sheet. */
-function extractSummaryBlock(ws: XLSX.WorkSheet, startRow: number): XLSX.CellObject[][] {
-  const block: XLSX.CellObject[][] = [];
-  for (let dr = 0; dr < 4; dr++) {
-    const row: XLSX.CellObject[] = [];
-    for (let c = 0; c < TOTAL_COLS; c++) {
-      const addr = XLSX.utils.encode_cell({ r: startRow + dr, c });
-      row.push(cloneCell(ws[addr]) ?? { v: '', t: 'z' });
-    }
-    block.push(row);
-  }
-  return block;
-}
-
-/** Clone style reference row from template (row 6) for new data rows. */
-function getDataRowStyleTemplate(ws: XLSX.WorkSheet): XLSX.CellObject[] {
-  const template: XLSX.CellObject[] = [];
-  for (let c = 0; c < TOTAL_COLS; c++) {
-    const addr = XLSX.utils.encode_cell({ r: FIRST_DATA_ROW, c });
-    template.push(cloneCell(ws[addr]) ?? { v: '', t: 'z' });
-  }
-  return template;
-}
-
-function setCell(
-  ws: XLSX.WorkSheet,
-  r: number,
-  c: number,
-  value: string | number | null | undefined,
-  styleTemplate?: XLSX.CellObject,
-  numFmt?: string,
-): void {
-  const addr = XLSX.utils.encode_cell({ r, c });
-  const sanitized = typeof value === 'string' ? sanitizeForExcel(value) : value;
-  const t = typeof sanitized === 'number' ? 'n' : typeof sanitized === 'string' && sanitized !== '' ? 's' : 'z';
-  const base = styleTemplate ? { ...styleTemplate } : (ws[addr] ?? { v: '', t: 'z' });
-  delete base.f;
-  ws[addr] = { ...base, v: sanitized ?? '', t };
-  if (numFmt) ws[addr].z = numFmt;
-}
-
-function writeChildRow(
-  ws: XLSX.WorkSheet,
-  row: number,
-  child: ChildRecord,
-  no: number,
-  styleRow: XLSX.CellObject[],
-): void {
-  setCell(ws, row, 0, no, styleRow[0]);
-  setCell(ws, row, 1, child.nama, styleRow[1]);
-  setCell(ws, row, 2, child.jk, styleRow[2]);
-  setCell(ws, row, 3, child.tanggalLahirSerial, styleRow[3], DATE_FMT);
-  setCell(ws, row, 4, child.nik || null, styleRow[4]);
-  setCell(ws, row, 5, child.namaOrangTua, styleRow[5]);
-  setCell(ws, row, 6, child.alamat, styleRow[6]);
-
-  for (const vk of VACCINE_ORDER) {
-    const cL = VACCINE_COLUMN_INDEX[vk];
-    const serial = child.vaccines[vk];
-    if (serial) {
-      if (child.jk === 'L') {
-        setCell(ws, row, cL, serial, styleRow[cL], DATE_FMT);
-        setCell(ws, row, cL + 1, null, styleRow[cL + 1]);
-      } else {
-        setCell(ws, row, cL, null, styleRow[cL]);
-        setCell(ws, row, cL + 1, serial, styleRow[cL + 1], DATE_FMT);
-      }
-    } else {
-      setCell(ws, row, cL, null, styleRow[cL]);
-      setCell(ws, row, cL + 1, null, styleRow[cL + 1]);
-    }
-  }
 }
 
 function countVaccines(
@@ -124,55 +42,6 @@ function countVaccines(
   return { nL, nP };
 }
 
-function writeSummaryBlock(
-  ws: XLSX.WorkSheet,
-  startRow: number,
-  template: XLSX.CellObject[][],
-  children: ChildRecord[],
-  month: number,
-  year: number,
-): void {
-  const { nL, nP } = countVaccines(children, month, year);
-
-  for (let dr = 0; dr < 4; dr++) {
-    for (let c = 0; c < TOTAL_COLS; c++) {
-      const addr = XLSX.utils.encode_cell({ r: startRow + dr, c });
-      const tmpl = template[dr][c];
-      ws[addr] = cloneCell(tmpl) ?? { v: '', t: 'z' };
-    }
-  }
-
-  const labelAddr = XLSX.utils.encode_cell({ r: startRow, c: SUMMARY_LABEL_COL });
-  const labelCell = ws[labelAddr] ?? { t: 's' };
-  labelCell.v = `Jumlah Imunisasi Bulan ${BULAN_INDONESIA[month]} ${year}`;
-  labelCell.t = 's';
-  delete labelCell.f;
-  ws[labelAddr] = labelCell;
-
-  const countRow = startRow + 2;
-  for (const vk of VACCINE_ORDER) {
-    const cL = VACCINE_COLUMN_INDEX[vk];
-    setCell(ws, countRow, cL, nL[vk], template[2][cL]);
-    setCell(ws, countRow, cL + 1, nP[vk], template[2][cL + 1]);
-  }
-
-  const totalRow = startRow + 3;
-  for (const vk of VACCINE_ORDER) {
-    const cL = VACCINE_COLUMN_INDEX[vk];
-    setCell(ws, totalRow, cL, nL[vk] + nP[vk], template[3][cL]);
-    setCell(ws, totalRow, cL + 1, null, template[3][cL + 1]);
-  }
-}
-
-function clearRows(ws: XLSX.WorkSheet, fromRow: number, toRow: number): void {
-  for (let r = fromRow; r <= toRow; r++) {
-    for (let c = 0; c < TOTAL_COLS; c++) {
-      const addr = XLSX.utils.encode_cell({ r, c });
-      delete ws[addr];
-    }
-  }
-}
-
 const SHEET_KELURAHAN_LABEL: Record<SheetName, string> = {
   MABUUN: 'Mabuun',
   KASIAU: 'Kasiau',
@@ -183,87 +52,157 @@ const SHEET_KELURAHAN_LABEL: Record<SheetName, string> = {
   Kejar: '',
 };
 
-function updateSheetHeader(
-  ws: XLSX.WorkSheet,
-  sheetName: SheetName,
-  month: number,
-  year: number,
-): void {
-  const bulanAddr = 'C3';
-  if (ws[bulanAddr]) ws[bulanAddr].v = `: ${BULAN_INDONESIA[month]} ${year}`;
-
-  const kelLabel = sheetName === 'MABUUN' ? '``' : 'Kelurahan/Desa';
-  if (ws['A4']) ws['A4'].v = kelLabel;
-  if (ws['C4']) ws['C4'].v = `: ${SHEET_KELURAHAN_LABEL[sheetName]}`;
-}
-
-function trimWorksheet(ws: XLSX.WorkSheet, lastRow: number): void {
-  ws['!ref'] = XLSX.utils.encode_range({ r: 0, c: 0 }, { r: lastRow, c: TOTAL_COLS - 1 });
-
-  for (const addr of Object.keys(ws)) {
-    if (addr.startsWith('!')) continue;
-    const cell = XLSX.utils.decode_cell(addr);
-    if (cell.r > lastRow || cell.c >= TOTAL_COLS) delete ws[addr];
-  }
-
-  if (ws['!merges']) {
-    ws['!merges'] = ws['!merges'].filter(
-      (m) => m.s.r <= lastRow && m.e.r <= lastRow && m.s.c < TOTAL_COLS && m.e.c < TOTAL_COLS,
-    );
-  }
-
-  if (ws['!rows']) ws['!rows'] = ws['!rows'].slice(0, lastRow + 1);
-  if (ws['!cols']) ws['!cols'] = ws['!cols'].slice(0, TOTAL_COLS);
-}
-
-/** Strip stale template formulas that would corrupt Excel after rows are trimmed. */
-function stripWorksheetFormulas(ws: XLSX.WorkSheet): void {
-  for (const addr of Object.keys(ws)) {
-    if (addr.startsWith('!')) continue;
-    const cell = ws[addr];
-    if (cell?.f) delete cell.f;
-  }
-}
-
 /**
- * Build Master Excel from template + merged data.
- * Reads with cellStyles:true, writes with cellStyles:true to preserve template formatting.
+ * Build Master Excel using exceljs to preserve all template styles.
+ * 
+ * Strategy:
+ * 1. Load template with exceljs (styles preserved)
+ * 2. Find the template summary block position
+ * 3. Clear data rows (set values to null, keep styles)
+ * 4. Write children at rows FIRST_DATA_ROW+
+ * 5. Write summary block right after data
+ * 6. Clear old summary position
+ * 7. Write buffer
  */
-export function buildMasterExcel(
+export async function buildMasterExcel(
   masterData: MasterData,
   month: number,
   year: number,
   templateBuffer: ArrayBuffer,
-): Blob {
-  const wb = XLSX.read(templateBuffer, { type: 'array', cellStyles: true });
+): Promise<Blob> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(templateBuffer);
 
   for (const sheetName of ALL_SHEETS) {
-    const ws = wb.Sheets[sheetName];
+    const ws = wb.getWorksheet(sheetName);
     if (!ws) continue;
 
     const children = masterData[sheetName];
-    const summaryStart = findSummaryStartRow(ws);
-    const summaryTemplate = extractSummaryBlock(ws, summaryStart);
-    const dataStyleRow = getDataRowStyleTemplate(ws);
 
-    updateSheetHeader(ws, sheetName, month, year);
-    clearRows(ws, FIRST_DATA_ROW, summaryStart + 3);
+    // --- Update header cells (only change value, preserve style) ---
+    ws.getCell('C3').value = `: ${BULAN_INDONESIA[month]} ${year}`;
+    const kelLabel = sheetName === 'MABUUN' ? '``' : 'Kelurahan/Desa';
+    ws.getCell('A4').value = kelLabel;
+    ws.getCell('C4').value = `: ${SHEET_KELURAHAN_LABEL[sheetName]}`;
 
-    let row = FIRST_DATA_ROW;
+    // --- Find template summary position (scan for "Jumlah" in column G) ---
+    let templateSummaryStart = -1;
+    // Scan a reasonable range to avoid performance issues
+    const maxScan = Math.min(ws.rowCount, 1000);
+    for (let r = FIRST_DATA_ROW; r <= maxScan; r++) {
+      const row = ws.getRow(r);
+      const cellG = row.getCell(SUMMARY_LABEL_COL);
+      const val = cellG.value;
+      if (val && typeof val === 'string' && val.startsWith('Jumlah')) {
+        templateSummaryStart = r;
+        break;
+      }
+    }
+
+    // Fallback: use the last few rows of the worksheet
+    if (templateSummaryStart === -1) {
+      templateSummaryStart = ws.rowCount - 3;
+    }
+
+    // --- Save template summary block styles (4 rows) ---
+    const summaryStyles: ExcelJS.Style[][] = [];
+    for (let dr = 0; dr < 4; dr++) {
+      const row = ws.getRow(templateSummaryStart + dr);
+      const rowStyles: ExcelJS.Style[] = [];
+      for (let c = 1; c <= TOTAL_COLS; c++) {
+        rowStyles.push({ ...row.getCell(c).style });
+      }
+      summaryStyles.push(rowStyles);
+    }
+
+    // --- Clear ALL data rows (set values to null, preserve styles) ---
+    const clearEnd = Math.max(templateSummaryStart + 4, FIRST_DATA_ROW + children.length + 10);
+    for (let r = FIRST_DATA_ROW; r <= clearEnd; r++) {
+      const row = ws.getRow(r);
+      for (let c = 1; c <= TOTAL_COLS; c++) {
+        row.getCell(c).value = null;
+      }
+      row.commit();
+    }
+
+    // --- Write children at FIRST_DATA_ROW ---
     children.forEach((child, idx) => {
-      writeChildRow(ws, row, child, idx + 1, dataStyleRow);
-      row++;
+      const r = FIRST_DATA_ROW + idx;
+      const row = ws.getRow(r);
+
+      row.getCell(1).value = idx + 1;
+      row.getCell(2).value = sanitizeForExcel(child.nama);
+      row.getCell(3).value = child.jk;
+      row.getCell(4).value = child.tanggalLahirSerial;
+      row.getCell(5).value = child.nik || null;
+      row.getCell(6).value = sanitizeForExcel(child.namaOrangTua);
+      row.getCell(7).value = sanitizeForExcel(child.alamat);
+
+      for (const vk of VACCINE_ORDER) {
+        const cL = VACCINE_COLUMN_INDEX[vk] + 1; // Convert to 1-based
+        const serial = child.vaccines[vk];
+        if (serial) {
+          if (child.jk === 'L') {
+            row.getCell(cL).value = serial;
+            row.getCell(cL + 1).value = null;
+          } else {
+            row.getCell(cL).value = null;
+            row.getCell(cL + 1).value = serial;
+          }
+        } else {
+          row.getCell(cL).value = null;
+          row.getCell(cL + 1).value = null;
+        }
+      }
+
+      row.commit();
     });
 
-    row++; // blank separator
+    // --- Write summary block right after data ---
+    const newSummaryStart = FIRST_DATA_ROW + children.length + 1; // +1 for blank separator
+    const { nL, nP } = countVaccines(children, month, year);
 
-    writeSummaryBlock(ws, row, summaryTemplate, children, month, year);
-    stripWorksheetFormulas(ws);
-    trimWorksheet(ws, row + 3);
+    for (let dr = 0; dr < 4; dr++) {
+      const row = ws.getRow(newSummaryStart + dr);
+
+      // Apply saved styles from template
+      for (let c = 1; c <= TOTAL_COLS; c++) {
+        row.getCell(c).style = summaryStyles[dr][c - 1];
+      }
+
+      // Write values
+      if (dr === 0) {
+        // Label row
+        row.getCell(SUMMARY_LABEL_COL).value = `Jumlah Imunisasi Bulan ${BULAN_INDONESIA[month]} ${year}`;
+      } else if (dr === 2) {
+        // Count row
+        for (const vk of VACCINE_ORDER) {
+          const cL = VACCINE_COLUMN_INDEX[vk] + 1;
+          row.getCell(cL).value = nL[vk];
+          row.getCell(cL + 1).value = nP[vk];
+        }
+      } else if (dr === 3) {
+        // Total row
+        for (const vk of VACCINE_ORDER) {
+          const cL = VACCINE_COLUMN_INDEX[vk] + 1;
+          row.getCell(cL).value = nL[vk] + nP[vk];
+          row.getCell(cL + 1).value = null;
+        }
+      }
+
+      row.commit();
+    }
+
+    // --- Trim worksheet: remove rows after summary block ---
+    const lastRowToKeep = newSummaryStart + 3;
+    if (ws.rowCount > lastRowToKeep) {
+      // Remove excess rows from the bottom
+      ws.spliceRows(lastRowToKeep + 1, ws.rowCount - lastRowToKeep);
+    }
   }
 
-  // KEY FIX: write with cellStyles:true to preserve template colors and formatting
-  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
+  // --- Write buffer with exceljs (preserves ALL styles!) ---
+  const buf = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
   return new Blob([buf], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });

@@ -65,7 +65,8 @@ describe('integration: contoh-dpt1 → master excel', () => {
     const masterData = createEmptyMasterData();
     parseAndMergeAsikFile(contohDpt1Buffer, masterData, emptyResult());
 
-    const outBuf = await buildMasterExcel(masterData, 6, 2026, templateBuffer).arrayBuffer();
+    const blob = await buildMasterExcel(masterData, 6, 2026, templateBuffer);
+    const outBuf = await blob.arrayBuffer();
     const wb = XLSX.read(outBuf, { type: 'array' });
 
     expect(wb.SheetNames).toEqual([

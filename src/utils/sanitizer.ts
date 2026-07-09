@@ -1,6 +1,7 @@
 /**
- * Sanitize a string for safe XML/Excel output.
- * Removes invalid XML characters and escapes XML special characters.
+ * Sanitize a string for safe Excel output.
+ * Only removes invalid XML 1.0 control characters.
+ * NOTE: Do NOT escape XML entities (&amp; &lt; etc.) — ExcelJS handles that internally.
  */
 export function sanitizeForExcel(input: string): string {
   if (!input || typeof input !== 'string') return input;
@@ -18,11 +19,5 @@ export function sanitizeForExcel(input: string): string {
     if (isValid) cleaned += input[i];
   }
 
-  // Escape XML special characters
-  return cleaned
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+  return cleaned;
 }

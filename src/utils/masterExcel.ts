@@ -104,15 +104,19 @@ export async function buildMasterExcel(
       templateSummaryStart = ws.rowCount - 3;
     }
 
-    // --- Save template summary block styles (4 rows) ---
-    const summaryStyles: ExcelJS.Style[][] = [];
+    // --- Save template summary block styles AND values (4 rows) ---
+    const summaryTemplate: { style: ExcelJS.Style; value: ExcelJS.CellValue }[][] = [];
     for (let dr = 0; dr < 4; dr++) {
       const row = ws.getRow(templateSummaryStart + dr);
-      const rowStyles: ExcelJS.Style[] = [];
+      const rowData: { style: ExcelJS.Style; value: ExcelJS.CellValue }[] = [];
       for (let c = 1; c <= TOTAL_COLS; c++) {
-        rowStyles.push({ ...row.getCell(c).style });
+        const cell = row.getCell(c);
+        rowData.push({ 
+          style: { ...cell.style },
+          value: cell.value as ExcelJS.CellValue,
+        });
       }
-      summaryStyles.push(rowStyles);
+      summaryTemplate.push(rowData);
     }
 
     // --- Clear ALL data rows (set values to null, preserve styles) ---
@@ -165,24 +169,23 @@ export async function buildMasterExcel(
     for (let dr = 0; dr < 4; dr++) {
       const row = ws.getRow(newSummaryStart + dr);
 
-      // Apply saved styles from template
+      // Apply saved styles AND default text values from template
       for (let c = 1; c <= TOTAL_COLS; c++) {
-        row.getCell(c).style = summaryStyles[dr][c - 1];
+        const tmpl = summaryTemplate[dr][c - 1];
+        row.getCell(c).style = tmpl.style;
+        row.getCell(c).value = tmpl.value;
       }
 
-      // Write values
+      // Override dynamic values
       if (dr === 0) {
-        // Label row
         row.getCell(SUMMARY_LABEL_COL).value = `Jumlah Imunisasi Bulan ${BULAN_INDONESIA[month]} ${year}`;
       } else if (dr === 2) {
-        // Count row
         for (const vk of VACCINE_ORDER) {
           const cL = VACCINE_COLUMN_INDEX[vk] + 1;
           row.getCell(cL).value = nL[vk];
           row.getCell(cL + 1).value = nP[vk];
         }
       } else if (dr === 3) {
-        // Total row
         for (const vk of VACCINE_ORDER) {
           const cL = VACCINE_COLUMN_INDEX[vk] + 1;
           row.getCell(cL).value = nL[vk] + nP[vk];

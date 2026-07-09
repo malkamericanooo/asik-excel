@@ -47,7 +47,7 @@ describe('diagnose excel corruption', () => {
     });
 
     // Current production path
-    const prodBlob = buildMasterExcel(master, 6, 2026, templateBuffer);
+    const prodBlob = await buildMasterExcel(master, 6, 2026, templateBuffer);
     const prodPath = resolve(OUT, 'production-export.xlsx');
     writeFileSync(prodPath, Buffer.from(await prodBlob.arrayBuffer()));
 

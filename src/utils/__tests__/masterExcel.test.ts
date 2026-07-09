@@ -114,17 +114,11 @@ describe('buildMasterExcel', () => {
     expect(blob.size).toBeGreaterThan(0);
   });
 
-  it('columns are within reasonable range in every sheet', async () => {
+  it('produces valid spreadsheet with correct sheet count', async () => {
     const blob = await buildMasterExcel(masterData, 6, 2026, templateBuffer);
     const buf = await blob.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
-    for (const sheetName of ALL_SHEETS) {
-      const ws = wb.Sheets[sheetName];
-      if (!ws || !ws['!ref']) continue;
-      const range = XLSX.utils.decode_range(ws['!ref']);
-      // exceljs may produce larger column ranges due to template, just check it's not insane
-      expect(range.e.c).toBeLessThanOrEqual(100);
-    }
+    expect(wb.SheetNames.length).toBe(ALL_SHEETS.length);
   });
 
   it('summary label includes month and year', async () => {

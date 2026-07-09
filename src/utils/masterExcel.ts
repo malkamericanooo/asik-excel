@@ -5,10 +5,10 @@ import { VACCINE_ORDER, VACCINE_COLUMN_INDEX } from './vaccineMapping';
 import { isInMonthYear, BULAN_INDONESIA } from './dateUtils';
 import { sanitizeForExcel } from './sanitizer';
 
-export const FIRST_DATA_ROW = 6;
+export const FIRST_DATA_ROW = 6; // xlsx 0-based — row 7 in Excel [unchanged]
 export const TOTAL_COLS = 49;
 const DATE_FMT = 'dd-mmm-yy';
-const SUMMARY_LABEL_COL = 6;
+const SUMMARY_LABEL_COL = 6; // Column G (0-based)
 
 /** Deep-clone a worksheet cell (value + style), without formulas. */
 function cloneCell(cell: XLSX.CellObject | undefined): XLSX.CellObject | undefined {
@@ -30,7 +30,7 @@ export function findSummaryStartRow(ws: XLSX.WorkSheet): number {
 }
 
 /** Extract the 4-row summary block (with styles) from a template sheet. */
-export function extractSummaryBlock(ws: XLSX.WorkSheet, startRow: number): XLSX.CellObject[][] {
+function extractSummaryBlock(ws: XLSX.WorkSheet, startRow: number): XLSX.CellObject[][] {
   const block: XLSX.CellObject[][] = [];
   for (let dr = 0; dr < 4; dr++) {
     const row: XLSX.CellObject[] = [];
@@ -142,7 +142,6 @@ function writeSummaryBlock(
     }
   }
 
-  // Overwrite summary label with month/year
   const labelAddr = XLSX.utils.encode_cell({ r: startRow, c: SUMMARY_LABEL_COL });
   const labelCell = ws[labelAddr] ?? { t: 's' };
   labelCell.v = `Jumlah Imunisasi Bulan ${BULAN_INDONESIA[month]} ${year}`;
@@ -150,7 +149,6 @@ function writeSummaryBlock(
   delete labelCell.f;
   ws[labelAddr] = labelCell;
 
-  // Row 2 (counts) — overwrite vaccine count cells
   const countRow = startRow + 2;
   for (const vk of VACCINE_ORDER) {
     const cL = VACCINE_COLUMN_INDEX[vk];
@@ -158,7 +156,6 @@ function writeSummaryBlock(
     setCell(ws, countRow, cL + 1, nP[vk], template[2][cL + 1]);
   }
 
-  // Row 3 (Total L + P)
   const totalRow = startRow + 3;
   for (const vk of VACCINE_ORDER) {
     const cL = VACCINE_COLUMN_INDEX[vk];
@@ -200,7 +197,6 @@ function updateSheetHeader(
   if (ws['C4']) ws['C4'].v = `: ${SHEET_KELURAHAN_LABEL[sheetName]}`;
 }
 
-/** Remove cells outside the active range and drop merges that fall beyond it. */
 function trimWorksheet(ws: XLSX.WorkSheet, lastRow: number): void {
   ws['!ref'] = XLSX.utils.encode_range({ r: 0, c: 0 }, { r: lastRow, c: TOTAL_COLS - 1 });
 
@@ -220,9 +216,18 @@ function trimWorksheet(ws: XLSX.WorkSheet, lastRow: number): void {
   if (ws['!cols']) ws['!cols'] = ws['!cols'].slice(0, TOTAL_COLS);
 }
 
+/** Strip stale template formulas that would corrupt Excel after rows are trimmed. */
+function stripWorksheetFormulas(ws: XLSX.WorkSheet): void {
+  for (const addr of Object.keys(ws)) {
+    if (addr.startsWith('!')) continue;
+    const cell = ws[addr];
+    if (cell?.f) delete cell.f;
+  }
+}
+
 /**
  * Build Master Excel from template + merged data.
- * @param templateBuffer - optional uploaded template; uses embedded default when omitted in browser
+ * Reads with cellStyles:true, writes with cellStyles:true to preserve template formatting.
  */
 export function buildMasterExcel(
   masterData: MasterData,
@@ -242,43 +247,26 @@ export function buildMasterExcel(
     const dataStyleRow = getDataRowStyleTemplate(ws);
 
     updateSheetHeader(ws, sheetName, month, year);
-
-    // Remove old data + old summary
     clearRows(ws, FIRST_DATA_ROW, summaryStart + 3);
 
-    // Write data rows
     let row = FIRST_DATA_ROW;
     children.forEach((child, idx) => {
       writeChildRow(ws, row, child, idx + 1, dataStyleRow);
       row++;
     });
 
-    // Blank separator row
-    row++;
+    row++; // blank separator
 
-    // Write summary block
     writeSummaryBlock(ws, row, summaryTemplate, children, month, year);
-
-    // Strip formulas that would corrupt the output after rows are trimmed
     stripWorksheetFormulas(ws);
     trimWorksheet(ws, row + 3);
   }
 
-  // Write WITHOUT cellStyles to prevent XML corruption in the output.
-  // cellStyles is only needed for reading to preserve internal format refs.
-  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  // KEY FIX: write with cellStyles:true to preserve template colors and formatting
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
   return new Blob([buf], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
-}
-
-/** Strip stale template formulas that would corrupt Excel after rows are trimmed. */
-export function stripWorksheetFormulas(ws: XLSX.WorkSheet): void {
-  for (const addr of Object.keys(ws)) {
-    if (addr.startsWith('!')) continue;
-    const cell = ws[addr];
-    if (cell?.f) delete cell.f;
-  }
 }
 
 export function getUploadedVaccines(masterData: MasterData): Set<VaccineKey> {

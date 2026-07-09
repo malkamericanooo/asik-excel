@@ -100,7 +100,7 @@ describe('buildMasterExcel', () => {
     expect(range.e.r).toBe(11);
     expect(ws['A395']).toBeUndefined();
   });
-  it('output file size is under 500KB', async () => {
+  it('output file size is under 500KB', () => {
     masterData.MABUUN.push(makeChild({ vaccines: { DPT_1: dateStringToExcelSerial('2026-06-17') } }));
     const blob = buildMasterExcel(masterData, 6, 2026, templateBuffer);
     expect(blob.size).toBeLessThan(500_000);

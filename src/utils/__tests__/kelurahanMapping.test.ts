@@ -17,4 +17,15 @@ describe('classifyKelurahan', () => {
   it('maps unknown kelurahan to Luar Wilayah', () => expect(classifyKelurahan('JANGKUNG')).toBe('LUAR WILAYAH'));
   it('maps TANTA HULU to Luar Wilayah', () => expect(classifyKelurahan('TANTA HULU')).toBe('LUAR WILAYAH'));
   it('maps empty string to Luar Wilayah', () => expect(classifyKelurahan('')).toBe('LUAR WILAYAH'));
+
+  // Additional edge cases for Belimbing & partial matches
+  it('maps "Belimbing" to Luar Wilayah', () => expect(classifyKelurahan('Belimbing')).toBe('LUAR WILAYAH'));
+  it('maps "belimbing" lowercase to Luar Wilayah', () => expect(classifyKelurahan('belimbing')).toBe('LUAR WILAYAH'));
+  it('maps "Belimbing Raya Rt.14" to Luar Wilayah', () => expect(classifyKelurahan('Belimbing Raya Rt.14')).toBe('LUAR WILAYAH'));
+  it('maps "MABUUN RT.10" to Luar Wilayah (not exact)', () => expect(classifyKelurahan('MABUUN RT.10')).toBe('LUAR WILAYAH'));
+  it('maps null/undefined-like to Luar Wilayah', () => expect(classifyKelurahan('  ')).toBe('LUAR WILAYAH'));
+  it('maps "Tanjung" to Luar Wilayah', () => expect(classifyKelurahan('Tanjung')).toBe('LUAR WILAYAH'));
+  it('maps "Maburai Rt.5" to Luar Wilayah (not exact)', () => expect(classifyKelurahan('Maburai Rt.5')).toBe('LUAR WILAYAH'));
+  it('maps mixed case "mAbUrAi" to MABURAI', () => expect(classifyKelurahan('mAbUrAi')).toBe('MABURAI'));
+  it('maps "Pembataan " with trailing spaces to PEMBATAAN', () => expect(classifyKelurahan('  Pembataan  ')).toBe('PEMBATAAN'));
 });

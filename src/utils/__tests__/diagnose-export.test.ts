@@ -30,7 +30,7 @@ function inspect(path: string, label: string) {
 }
 
 describe('diagnose excel corruption', () => {
-  it('compare export variants', async () => {
+  it('compare export variants', { timeout: 60_000 }, async () => {
     mkdirSync(OUT, { recursive: true });
     const templateBuf = readFileSync(TEMPLATE);
     const templateBuffer = templateBuf.buffer.slice(

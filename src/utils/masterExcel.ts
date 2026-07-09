@@ -23,7 +23,7 @@ export function findSummaryStartRow(ws: XLSX.WorkSheet): number {
   const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1:A1');
   for (let r = FIRST_DATA_ROW; r <= range.e.r; r++) {
     const cell = ws[XLSX.utils.encode_cell({ r, c: SUMMARY_LABEL_COL })];
-    if (cell?.v === 'Jumlah') return r;
+    if (cell?.v && String(cell.v).startsWith('Jumlah')) return r;
   }
   return range.e.r - 3;
 }
@@ -140,6 +140,14 @@ function writeSummaryBlock(
     }
   }
 
+  // Overwrite summary label with month/year
+  const labelAddr = XLSX.utils.encode_cell({ r: startRow, c: SUMMARY_LABEL_COL });
+  const labelCell = ws[labelAddr] ?? { t: 's' };
+  labelCell.v = `Jumlah Imunisasi Bulan ${BULAN_INDONESIA[month]} ${year}`;
+  labelCell.t = 's';
+  delete labelCell.f;
+  ws[labelAddr] = labelCell;
+
   // Row 2 (counts) — overwrite vaccine count cells
   const countRow = startRow + 2;
   for (const vk of VACCINE_ORDER) {
@@ -202,11 +210,12 @@ function trimWorksheet(ws: XLSX.WorkSheet, lastRow: number): void {
 
   if (ws['!merges']) {
     ws['!merges'] = ws['!merges'].filter(
-      (m) => m.s.r <= lastRow && m.e.r <= lastRow && m.e.c < TOTAL_COLS,
+      (m) => m.s.r <= lastRow && m.e.r <= lastRow && m.s.c < TOTAL_COLS && m.e.c < TOTAL_COLS,
     );
   }
 
   if (ws['!rows']) ws['!rows'] = ws['!rows'].slice(0, lastRow + 1);
+  if (ws['!cols']) ws['!cols'] = ws['!cols'].slice(0, TOTAL_COLS);
 }
 
 /**
@@ -248,10 +257,14 @@ export function buildMasterExcel(
     // Write summary block
     writeSummaryBlock(ws, row, summaryTemplate, children, month, year);
 
+    // Strip formulas that would corrupt the output after rows are trimmed
+    stripWorksheetFormulas(ws);
     trimWorksheet(ws, row + 3);
   }
 
-  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
+  // Write WITHOUT cellStyles to prevent XML corruption in the output.
+  // cellStyles is only needed for reading to preserve internal format refs.
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
   return new Blob([buf], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });

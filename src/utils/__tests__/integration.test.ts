@@ -85,7 +85,7 @@ describe('integration: contoh-dpt1 → master excel', () => {
     expect(luar['P7']?.v).toBeGreaterThan(0);
 
     const summaryStart = findSummaryStartRow(mabuun);
-    expect(mabuun[XLSX.utils.encode_cell({ r: summaryStart, c: 6 })]?.v).toBe('Jumlah');
+    expect(mabuun[XLSX.utils.encode_cell({ r: summaryStart, c: 6 })]?.v).toBe('Jumlah Imunisasi Bulan Juni 2026');
     const countRow = summaryStart + 2;
     expect(mabuun[XLSX.utils.encode_cell({ r: countRow, c: 15 })]?.v).toBe(5);
   });

@@ -94,7 +94,7 @@ export async function buildMasterExcel(
 
   // 2. Load cleaned template with exceljs (preserves all styles)
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(Buffer.from(cleanedBuffer));
+  await wb.xlsx.load(cleanedBuffer);
 
   for (const sheetName of ALL_SHEETS) {
     const ws = wb.getWorksheet(sheetName);

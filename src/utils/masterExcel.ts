@@ -9,10 +9,11 @@ export const TOTAL_COLS = 49;
 const DATE_FMT = 'dd-mmm-yy';
 const SUMMARY_LABEL_COL = 6;
 
-/** Deep-clone a worksheet cell (value + style). */
+/** Deep-clone a worksheet cell (value + style), without formulas. */
 function cloneCell(cell: XLSX.CellObject | undefined): XLSX.CellObject | undefined {
   if (!cell) return undefined;
   const cloned: XLSX.CellObject = { ...cell };
+  delete cloned.f;
   if (cell.s) cloned.s = JSON.parse(JSON.stringify(cell.s));
   return cloned;
 }
@@ -62,6 +63,7 @@ function setCell(
   const addr = XLSX.utils.encode_cell({ r, c });
   const t = typeof value === 'number' ? 'n' : typeof value === 'string' && value !== '' ? 's' : 'z';
   const base = styleTemplate ? { ...styleTemplate } : (ws[addr] ?? { v: '', t: 'z' });
+  delete base.f;
   ws[addr] = { ...base, v: value ?? '', t };
   if (numFmt) ws[addr].z = numFmt;
 }
@@ -159,12 +161,7 @@ function clearRows(ws: XLSX.WorkSheet, fromRow: number, toRow: number): void {
   for (let r = fromRow; r <= toRow; r++) {
     for (let c = 0; c < TOTAL_COLS; c++) {
       const addr = XLSX.utils.encode_cell({ r, c });
-      if (ws[addr]) {
-        delete ws[addr].v;
-        ws[addr].t = 'z';
-      } else {
-        delete ws[addr];
-      }
+      delete ws[addr];
     }
   }
 }
@@ -255,7 +252,18 @@ export function buildMasterExcel(
   }
 
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
-  return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  return new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+}
+
+/** Strip stale template formulas that would corrupt Excel after rows are trimmed. */
+export function stripWorksheetFormulas(ws: XLSX.WorkSheet): void {
+  for (const addr of Object.keys(ws)) {
+    if (addr.startsWith('!')) continue;
+    const cell = ws[addr];
+    if (cell?.f) delete cell.f;
+  }
 }
 
 export function getUploadedVaccines(masterData: MasterData): Set<VaccineKey> {

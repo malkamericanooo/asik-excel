@@ -1,10 +1,10 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { saveAs } from 'file-saver';
 import type { MasterData, UploadLogEntry, ProcessResult, VaccineKey } from './types';
 import { ALL_SHEETS } from './types';
 import { createEmptyMasterData, parseAndMergeAsikFile } from './utils/asikParser';
 import { buildMasterExcel, getUploadedVaccines } from './utils/masterExcel';
 import { loadDefaultTemplate } from './utils/templateLoader';
+import { downloadBlob } from './utils/downloadFile';
 import { BULAN_INDONESIA } from './utils/dateUtils';
 import { VACCINE_DISPLAY_NAMES, VACCINE_ORDER } from './utils/vaccineMapping';
 
@@ -29,18 +29,31 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [templateBuffer, setTemplateBuffer] = useState<ArrayBuffer | null>(null);
   const [templateName, setTemplateName] = useState('Template default');
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const [dataCount, setDataCount] = useState<Record<string, number>>(
     Object.fromEntries(ALL_SHEETS.map((s) => [s, 0]))
   );
   const vaccineFileRef = useRef<HTMLInputElement>(null);
   const templateFileRef = useRef<HTMLInputElement>(null);
   const uploadedVaccines = useMemo(() => getUploadedVaccines(masterData), [masterData]);
-  const addLog = (entry: UploadLogEntry) => setLogs((prev) => [entry, ...prev]);
+  const totalChildren = ALL_SHEETS.reduce((sum, s) => sum + (dataCount[s] ?? 0), 0);
+  const uploadedCount = uploadedVaccines.size;
+  const totalVaccines = VACCINE_ORDER.length;
+  const canDownload = totalChildren > 0 && templateBuffer !== null && !isExporting;
 
   useEffect(() => {
     loadDefaultTemplate()
-      .then((buf) => setTemplateBuffer(buf))
-      .catch((err) => console.error('Gagal memuat template:', err));
+      .then((buf) => {
+        setTemplateBuffer(buf);
+        setTemplateError(null);
+      })
+      .catch((err) => {
+        console.error('Gagal memuat template:', err);
+        setTemplateError(
+          err instanceof Error ? err.message : 'Gagal memuat template Master default.',
+        );
+      });
   }, []);
 
   const handleTemplateUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,6 +63,7 @@ function App() {
       const buffer = await file.arrayBuffer();
       setTemplateBuffer(buffer);
       setTemplateName(file.name);
+      setTemplateError(null);
     } catch (err) {
       alert(`Gagal memuat template: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -57,28 +71,25 @@ function App() {
     }
   }, []);
 
-  const handleVaccineUpload = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      if (!periodLocked) { alert('Harap konfirmasi Bulan dan Tahun terlebih dahulu sebelum upload!'); e.target.value = ''; return; }
-      setIsProcessing(true);
-      try {
-        const buffer = await file.arrayBuffer();
-        const result: ProcessResult = { added: 0, updated: 0, moved: 0, skipped: 0, logs: [] };
-        const newMaster = JSON.parse(JSON.stringify(masterData)) as MasterData;
-        parseAndMergeAsikFile(buffer, newMaster, result, {
-          selectedVaccine: selectedVaccine as VaccineKey,
-        });
-        setMasterData(newMaster);
-        const counts: Record<string, number> = {};
-        for (const s of ALL_SHEETS) counts[s] = newMaster[s].length;
-        setDataCount(counts);
-        const total = result.added + result.updated + result.moved;
-        addLog({
-          id: Date.now().toString(), fileName: file.name,
-          antigen: VACCINE_DISPLAY_NAMES[selectedVaccine as keyof typeof VACCINE_DISPLAY_NAMES] ?? selectedVaccine,
-          processedAt: new Date().toLocaleTimeString('id-ID'), dataCount: total,
+  const processVaccineFile = useCallback(
+    async (file: File, currentMaster: MasterData): Promise<{ master: MasterData; log: UploadLogEntry }> => {
+      const buffer = await file.arrayBuffer();
+      const result: ProcessResult = { added: 0, updated: 0, moved: 0, skipped: 0, logs: [] };
+      const newMaster = JSON.parse(JSON.stringify(currentMaster)) as MasterData;
+      parseAndMergeAsikFile(buffer, newMaster, result, {
+        selectedVaccine: selectedVaccine as VaccineKey,
+      });
+      const total = result.added + result.updated + result.moved;
+      return {
+        master: newMaster,
+        log: {
+          id: `${Date.now()}-${file.name}`,
+          fileName: file.name,
+          antigen:
+            VACCINE_DISPLAY_NAMES[selectedVaccine as keyof typeof VACCINE_DISPLAY_NAMES] ??
+            selectedVaccine,
+          processedAt: new Date().toLocaleTimeString('id-ID'),
+          dataCount: total,
           status: result.skipped > 0 && total === 0 ? 'error' : 'success',
           message: [
             `+${result.added} baru`,
@@ -86,24 +97,84 @@ function App() {
             result.moved > 0 ? `↗${result.moved} dipindah` : '',
             result.skipped > 0 ? `⊘${result.skipped} dilewati` : '',
             ...result.logs.slice(0, 3),
-          ].filter(Boolean).join(' · '),
-        });
-      } catch (err) {
-        addLog({ id: Date.now().toString(), fileName: file.name, antigen: selectedVaccine, processedAt: new Date().toLocaleTimeString('id-ID'), dataCount: 0, status: 'error', message: `Error: ${err instanceof Error ? err.message : String(err)}` });
-      } finally { setIsProcessing(false); e.target.value = ''; }
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        },
+      };
     },
-    [masterData, selectedVaccine, periodLocked]
+    [selectedVaccine],
   );
 
-  const handleDownload = () => {
+  const handleVaccineUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files?.length) return;
+      if (!periodLocked) {
+        alert('Harap konfirmasi Bulan dan Tahun terlebih dahulu sebelum upload!');
+        e.target.value = '';
+        return;
+      }
+
+      setIsProcessing(true);
+      let currentMaster = masterData;
+      const newLogs: UploadLogEntry[] = [];
+
+      try {
+        for (const file of Array.from(files)) {
+          try {
+            const { master, log } = await processVaccineFile(file, currentMaster);
+            currentMaster = master;
+            newLogs.push(log);
+          } catch (err) {
+            newLogs.push({
+              id: `${Date.now()}-${file.name}`,
+              fileName: file.name,
+              antigen: selectedVaccine,
+              processedAt: new Date().toLocaleTimeString('id-ID'),
+              dataCount: 0,
+              status: 'error',
+              message: `Error: ${err instanceof Error ? err.message : String(err)}`,
+            });
+          }
+        }
+
+        setMasterData(currentMaster);
+        const counts: Record<string, number> = {};
+        for (const s of ALL_SHEETS) counts[s] = currentMaster[s].length;
+        setDataCount(counts);
+        setLogs((prev) => [...newLogs.reverse(), ...prev]);
+      } finally {
+        setIsProcessing(false);
+        e.target.value = '';
+      }
+    },
+    [masterData, periodLocked, processVaccineFile, selectedVaccine],
+  );
+
+  const handleDownload = async () => {
     if (!templateBuffer) {
-      alert('Template Master belum siap. Tunggu sebentar atau upload template manual.');
+      alert(
+        templateError ??
+          'Template Master belum siap. Upload template manual di langkah 2, lalu coba lagi.',
+      );
       return;
     }
+    if (totalChildren === 0) {
+      alert('Belum ada data. Upload file vaksin ASIK terlebih dahulu.');
+      return;
+    }
+
+    setIsExporting(true);
     try {
       const blob = buildMasterExcel(masterData, month, year, templateBuffer);
-      saveAs(blob, `Master_Imunisasi_${BULAN_INDONESIA[month]}_${year}.xlsx`);
-    } catch (err) { alert(`Gagal membuat file: ${err instanceof Error ? err.message : String(err)}`); }
+      const filename = `Master_Imunisasi_${BULAN_INDONESIA[month]}_${year}.xlsx`;
+      downloadBlob(blob, filename);
+    } catch (err) {
+      alert(`Gagal membuat file: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleReset = () => {
@@ -111,10 +182,6 @@ function App() {
     setMasterData(createEmptyMasterData()); setLogs([]); setPeriodLocked(false);
     setDataCount(Object.fromEntries(ALL_SHEETS.map((s) => [s, 0])));
   };
-
-  const totalChildren = ALL_SHEETS.reduce((sum, s) => sum + (dataCount[s] ?? 0), 0);
-  const uploadedCount = uploadedVaccines.size;
-  const totalVaccines = VACCINE_ORDER.length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50">
@@ -179,6 +246,11 @@ function App() {
           </div>
           <div className="p-4 space-y-3">
             <p className="text-xs text-gray-500">Upload template Master (opsional). Jika tidak diupload, format default Puskesmas Mabuun akan dipakai.</p>
+            {templateError && !templateBuffer && (
+              <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                ⚠ {templateError}
+              </p>
+            )}
             <input ref={templateFileRef} type="file" accept=".xlsx,.xls" onChange={handleTemplateUpload} className="hidden" />
             <button
               onClick={() => templateFileRef.current?.click()}
@@ -206,7 +278,7 @@ function App() {
                 {VACCINE_ORDER.map((vk) => <option key={vk} value={vk}>{uploadedVaccines.has(vk) ? '✓ ' : ''}{VACCINE_DISPLAY_NAMES[vk]}</option>)}
               </select>
             </div>
-            <input ref={vaccineFileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleVaccineUpload} className="hidden" />
+            <input ref={vaccineFileRef} type="file" accept=".xlsx,.xls,.csv" multiple onChange={handleVaccineUpload} className="hidden" />
             <button
               onClick={() => { if (!periodLocked) { alert('Harap konfirmasi Bulan dan Tahun terlebih dahulu!'); return; } vaccineFileRef.current?.click(); }}
               disabled={isProcessing}
@@ -215,10 +287,10 @@ function App() {
               {isProcessing ? (
                 <><svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></svg>Memproses...</>
               ) : (
-                <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>Upload File Vaksin</>
+                <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>Upload File Vaksin (bisa banyak sekaligus)</>
               )}
             </button>
-            <p className="text-xs text-gray-400 text-center">Upload satu per satu. Urutan bebas — duplikat anak otomatis digabung. Tidak harus upload semua vaksin.</p>
+            <p className="text-xs text-gray-400 text-center">Pilih banyak file sekaligus (Ctrl/Cmd+klik atau Shift). Urutan bebas — duplikat anak otomatis digabung.</p>
           </div>
         </section>
 
@@ -321,14 +393,19 @@ function App() {
 
         {/* Download & Reset */}
         <section className="space-y-3">
-          <button onClick={handleDownload} disabled={totalChildren === 0 || !templateBuffer}
-            className={`w-full py-4 rounded-2xl text-base font-bold transition-all flex items-center justify-center gap-3 ${totalChildren > 0 ? 'bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 shadow-lg shadow-emerald-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
+          <button onClick={handleDownload} disabled={!canDownload}
+            className={`w-full py-4 rounded-2xl text-base font-bold transition-all flex items-center justify-center gap-3 ${canDownload ? 'bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 shadow-lg shadow-emerald-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
-            Download Master Excel
-            {totalChildren > 0 && <span className="text-emerald-200 text-sm font-normal">· {totalChildren} anak · {uploadedCount}/{totalVaccines} vaksin · {BULAN_INDONESIA[month]} {year}</span>}
+            {isExporting ? 'Menyiapkan file...' : 'Download Master Excel'}
+            {totalChildren > 0 && canDownload && <span className="text-emerald-200 text-sm font-normal">· {totalChildren} anak · {uploadedCount}/{totalVaccines} vaksin · {BULAN_INDONESIA[month]} {year}</span>}
           </button>
+          {totalChildren > 0 && !templateBuffer && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-center">
+              ⚠ Template belum tersedia — upload template Master di langkah 2 untuk bisa download.
+            </p>
+          )}
           {totalChildren > 0 && (
             <button onClick={handleReset} className="w-full py-2.5 rounded-xl text-sm text-gray-500 hover:text-red-500 hover:bg-red-50 transition-all border border-gray-100">
               Reset Semua Data

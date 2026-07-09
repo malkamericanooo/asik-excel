@@ -8,8 +8,8 @@ function normalizeKey(s: string): string {
   return (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
-function childKey(nama: string, tglLahir: string, namaOrtu: string): string {
-  return `${normalizeKey(nama)}|${tglLahir}|${normalizeKey(namaOrtu)}`;
+function childKey(nama: string, tglLahir: string): string {
+  return `${normalizeKey(nama)}|${tglLahir}`;
 }
 
 function findChild(
@@ -18,7 +18,7 @@ function findChild(
 ): { sheet: SheetName; index: number } | null {
   for (const [sheetName, rows] of Object.entries(masterData)) {
     const idx = rows.findIndex(
-      (r) => childKey(r.nama, r.tanggalLahirStr, r.namaOrangTua) === key,
+      (r) => childKey(r.nama, r.tanggalLahirStr) === key,
     );
     if (idx !== -1) return { sheet: sheetName as SheetName, index: idx };
   }
@@ -101,7 +101,6 @@ export function parseAndMergeAsikFile(
   const missing: string[] = [];
   if (col.nama === -1) missing.push('Nama Anak');
   if (col.tglLahir === -1) missing.push('Tanggal Lahir');
-  if (col.namaOrtu === -1) missing.push('Nama Orang Tua');
   if (col.tglImunisasi === -1) missing.push('Tanggal Imunisasi');
   if (col.antigen === -1 && !options.selectedVaccine) {
     missing.push('Nama Antigen (atau pilih jenis vaksin di dropdown)');
@@ -128,9 +127,10 @@ export function parseAndMergeAsikFile(
     const jkRaw = col.jk >= 0 ? String(row[col.jk] ?? '').trim() : '';
     const nikRaw = col.nik >= 0 ? String(row[col.nik] ?? '').replace(/^'/, '').trim() : '';
 
-    if (!nama || !tglLahirRaw || !namaOrtu) {
+    // Hanya Nama + Tgl Lahir yang wajib. Nama Ortu opsional.
+    if (!nama || !tglLahirRaw) {
       result.skipped++;
-      result.logs.push(`Baris ${i + 1}: data identitas tidak lengkap, dilewati.`);
+      result.logs.push(`Baris ${i + 1}: data identitas tidak lengkap (nama atau tgl lahir kosong), dilewati.`);
       continue;
     }
 
@@ -154,7 +154,7 @@ export function parseAndMergeAsikFile(
     const targetSheet: SheetName = isKejar ? 'Kejar' : classifyKelurahan(kelurahanRaw);
     const alamat = formatAlamat(kelurahanRaw, isKejar);
 
-    const key = childKey(nama, tglLahirRaw, namaOrtu);
+    const key = childKey(nama, tglLahirRaw);
     const existing = findChild(masterData, key);
 
     if (existing) {

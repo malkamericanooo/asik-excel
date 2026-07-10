@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import type { ChildRecord, MasterData, SheetName, VaccineKey } from '../types';
 import { ALL_SHEETS } from '../types';
 import { VACCINE_ORDER, VACCINE_COLUMN_INDEX } from './vaccineMapping';
@@ -40,6 +41,21 @@ const SHEET_KELURAHAN_LABEL: Record<SheetName, string> = {
   Kejar: '',
 };
 
+async function stripSharedFormulas(templateBuffer: ArrayBuffer): Promise<ArrayBuffer> {
+  const zip = await JSZip.loadAsync(templateBuffer);
+  const sheetFiles = Object.keys(zip.files).filter(
+    (f) => f.startsWith('xl/worksheets/sheet') && f.endsWith('.xml'),
+  );
+  for (const file of sheetFiles) {
+    let content = await zip.file(file)!.async('string');
+    // Remove all formula tags: <f>...</f> and <f ... /> (self-closing)
+    content = content.replace(/<f[^>]*>[\s\S]*?<\/f>/g, '');
+    content = content.replace(/<f[^>]*\/>/g, '');
+    zip.file(file, content);
+  }
+  return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
+}
+
 function findSummaryRow(ws: ExcelJS.Worksheet): number {
   const maxScan = Math.min(ws.rowCount, 1000);
   for (let r = FIRST_DATA_ROW; r <= maxScan; r++) {
@@ -75,33 +91,16 @@ function writeSummary(
   }
 }
 
-/**
- * Convert all formula cells in a workbook to their cached values BEFORE modifications.
- * This avoids exceljs "Shared Formula master" crash during writeBuffer().
- */
-function convertFormulasToValues(wb: ExcelJS.Workbook): void {
-  for (const ws of wb.worksheets) {
-    if (!ws) continue;
-    ws.eachRow({ includeEmpty: false }, (row) => {
-      row.eachCell({ includeEmpty: false }, (cell) => {
-        if ((cell as any).isFormula) {
-          const result = (cell as any).result;
-          cell.value = (result !== undefined && result !== null) ? result : null;
-        }
-      });
-    });
-  }
-}
-
 export async function buildMasterExcel(
   masterData: MasterData,
   month: number,
   year: number,
   templateBuffer: ArrayBuffer,
 ): Promise<Blob> {
+  // Strip shared formulas before exceljs loads (avoids "Shared Formula master" crash)
+  const cleanedBuffer = await stripSharedFormulas(templateBuffer);
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(templateBuffer);
-  convertFormulasToValues(wb);
+  await wb.xlsx.load(cleanedBuffer);
 
   for (const sheetName of ALL_SHEETS) {
     const ws = wb.getWorksheet(sheetName);
@@ -115,7 +114,6 @@ export async function buildMasterExcel(
 
     // --- Find existing summary position ---
     const summaryRow = findSummaryRow(ws);
-    const dataAreaEnd = summaryRow - 1;
     const lastChildRow = FIRST_DATA_ROW + children.length - 1;
 
     // --- Write children data ---
@@ -156,9 +154,10 @@ export async function buildMasterExcel(
     const { nL, nP } = countVaccines(children, month, year);
 
     if (lastChildRow < summaryRow) {
+      // Children fit in data area → write summary at original position
       writeSummary(ws, summaryRow, month, year, nL, nP);
     } else {
-      // Children overflow: table ends at lastChildRow, 2 empty rows gap, then summary
+      // Children overflow → 2 empty rows gap, then summary
       writeSummary(ws, lastChildRow + 3, month, year, nL, nP);
     }
   }

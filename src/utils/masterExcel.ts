@@ -121,15 +121,21 @@ export async function buildMasterExcel(
       const r = FIRST_DATA_ROW + idx;
       const row = ws.getRow(r);
       row.getCell(1).value = idx + 1;
+      row.getCell(1).numFmt = undefined; // Force number, not date
       row.getCell(2).value = sanitizeForExcel(child.nama);
+      row.getCell(2).numFmt = undefined;
       row.getCell(3).value = child.jk;
+      row.getCell(3).numFmt = undefined;
       if (child.tanggalLahirSerial) {
         row.getCell(4).value = child.tanggalLahirSerial;
         row.getCell(4).numFmt = DATE_FMT;
       }
       row.getCell(5).value = child.nik || null;
+      row.getCell(5).numFmt = undefined;
       row.getCell(6).value = sanitizeForExcel(child.namaOrangTua);
+      row.getCell(6).numFmt = undefined;
       row.getCell(7).value = sanitizeForExcel(child.alamat);
+      row.getCell(7).numFmt = undefined;
       for (const vk of VACCINE_ORDER) {
         const cL = VACCINE_COLUMN_INDEX[vk] + 1;
         const s = child.vaccines[vk];

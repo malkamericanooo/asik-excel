@@ -184,8 +184,8 @@ describe('buildMasterExcel', () => {
     expect(ws.getRow(summaryRow).getCell(7).value).toBe('Jumlah Imunisasi Bulan Maret 2026');
   });
 
-  // --- Overflow case: Kejar with 50 children (overflows its 42-row data area) ---
-  it('handles Kejar overflow: summary moves to lastChildRow + 3', async () => {
+  // --- Case: 50 children in Kejar (fits in 200-row table area) ---
+  it('children < 200 fit in fixed table, summary at row 209', async () => {
     for (let i = 0; i < 50; i++) {
       masterData.Kejar.push(makeChild({ nama: `Anak ${i + 1}`, alamat: 'Kejar' }));
     }
@@ -199,17 +199,35 @@ describe('buildMasterExcel', () => {
       const val = ws.getRow(r).getCell(7).value;
       if (val && typeof val === 'string' && val.startsWith('Jumlah')) { summaryRow = r; break; }
     }
-    // 50 children, lastChildRow = 56, summary at 56 + 3 = 59
-    expect(summaryRow).toBe(59);
+    // 50 children, lastChildRow = 56. Since 56 <= 206 (data area), summary at 206 + 3 = 209
+    expect(summaryRow).toBe(209);
     expect(ws.getRow(7).getCell(1).value).toBe(1); // first child
     expect(ws.getRow(56).getCell(1).value).toBe(50); // last child
-    // Row 57-58 should be empty (gap)
-    expect(ws.getRow(57).getCell(1).value).toBeFalsy();
-    expect(ws.getRow(58).getCell(1).value).toBeFalsy();
   });
 
-  // --- No overflow case: children < data area, summary stays in original position ---
-  it('children < capacity keeps summary at original position', async () => {
+  // --- Case: children overflow beyond 200 rows ---
+  it('children > 200 overflow: summary moves to lastChildRow + 3', async () => {
+    for (let i = 0; i < 250; i++) {
+      masterData.Kejar.push(makeChild({ nama: `Anak ${i + 1}`, alamat: 'Kejar' }));
+    }
+    const blob = await buildMasterExcel(masterData, 6, 2026, templateBuffer);
+    const wb = await readWorkbook(blob);
+    const ws = wb.getWorksheet('Kejar');
+    if (!ws) { expect(ws).toBeTruthy(); return; }
+
+    let summaryRow = -1;
+    for (let r = 7; r <= Math.min(ws.rowCount, 2000); r++) {
+      const val = ws.getRow(r).getCell(7).value;
+      if (val && typeof val === 'string' && val.startsWith('Jumlah')) { summaryRow = r; break; }
+    }
+    // 250 children, lastChildRow = 256. Since 256 > 206, summary at 256 + 3 = 259
+    expect(summaryRow).toBe(259);
+    expect(ws.getRow(7).getCell(1).value).toBe(1);
+    expect(ws.getRow(256).getCell(1).value).toBe(250);
+  });
+
+  // --- Case: 5 children, summary still at 209 (fixed position) ---
+  it('small data still puts summary at 209', async () => {
     for (let i = 0; i < 5; i++) {
       masterData.Kejar.push(makeChild({ nama: `Anak ${i + 1}`, alamat: 'Kejar' }));
     }
@@ -223,8 +241,8 @@ describe('buildMasterExcel', () => {
       const val = ws.getRow(r).getCell(7).value;
       if (val && typeof val === 'string' && val.startsWith('Jumlah')) { summaryRow = r; break; }
     }
-    // Original Kejar summary at row 49. Since children fit, it stays.
-    expect(summaryRow).toBe(49);
+    // 5 children fit in 200-row table → summary at 209
+    expect(summaryRow).toBe(209);
   });
 });
 

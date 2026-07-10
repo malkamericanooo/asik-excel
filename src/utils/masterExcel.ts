@@ -7,6 +7,8 @@ import { isInMonthYear, BULAN_INDONESIA } from './dateUtils';
 import { sanitizeForExcel } from './sanitizer';
 
 const FIRST_DATA_ROW = 7;
+const FIXED_TABLE_ROWS = 200;
+const DATA_AREA_END = FIRST_DATA_ROW + FIXED_TABLE_ROWS - 1; // row 206
 const SUMMARY_LABEL_COL = 7; // Column G (1-based)
 const DATE_FMT = 'dd-mmm-yy';
 
@@ -56,13 +58,23 @@ async function stripSharedFormulas(templateBuffer: ArrayBuffer): Promise<ArrayBu
   return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
 }
 
-function findSummaryRow(ws: ExcelJS.Worksheet): number {
-  const maxScan = Math.min(ws.rowCount, 1000);
+function clearOldSummary(ws: ExcelJS.Worksheet): void {
+  const maxScan = Math.min(ws.rowCount, 2000);
   for (let r = FIRST_DATA_ROW; r <= maxScan; r++) {
-    const val = ws.getRow(r).getCell(SUMMARY_LABEL_COL).value;
-    if (val && typeof val === 'string' && val.startsWith('Jumlah')) return r;
+    const cell = ws.getRow(r).getCell(SUMMARY_LABEL_COL);
+    const val = cell.value;
+    if (val && typeof val === 'string' && val.startsWith('Jumlah')) {
+      cell.value = null;
+      // Also clear cells in the block (rows 724-728 etc.)
+      for (let dr = 1; dr <= 4; dr++) {
+        const row = ws.getRow(r + dr);
+        for (let c = 1; c <= 49; c++) {
+          row.getCell(c).value = null;
+        }
+      }
+      break;
+    }
   }
-  return ws.rowCount - 4;
 }
 
 function writeSummary(
@@ -80,13 +92,16 @@ function writeSummary(
   for (const vk of VACCINE_ORDER) {
     const cL = VACCINE_COLUMN_INDEX[vk] + 1;
     countRow.getCell(cL).value = nL[vk];
+    countRow.getCell(cL).numFmt = undefined;
     countRow.getCell(cL + 1).value = nP[vk];
+    countRow.getCell(cL + 1).numFmt = undefined;
   }
 
   const totalRow = ws.getRow(startRow + 3);
   for (const vk of VACCINE_ORDER) {
     const cL = VACCINE_COLUMN_INDEX[vk] + 1;
     totalRow.getCell(cL).value = nL[vk] + nP[vk];
+    totalRow.getCell(cL).numFmt = undefined;
     totalRow.getCell(cL + 1).value = null;
   }
 }
@@ -112,8 +127,9 @@ export async function buildMasterExcel(
     ws.getCell('A4').value = sheetName === 'MABUUN' ? '``' : 'Kelurahan/Desa';
     ws.getCell('C4').value = `: ${SHEET_KELURAHAN_LABEL[sheetName]}`;
 
-    // --- Find existing summary position ---
-    const summaryRow = findSummaryRow(ws);
+    // --- Clear old summary from template ---
+    clearOldSummary(ws);
+
     const lastChildRow = FIRST_DATA_ROW + children.length - 1;
 
     // --- Write children data ---
@@ -159,11 +175,11 @@ export async function buildMasterExcel(
     // --- Write summary with 2-row gap ---
     const { nL, nP } = countVaccines(children, month, year);
 
-    if (lastChildRow < summaryRow) {
-      // Children fit in data area → write summary at original position
-      writeSummary(ws, summaryRow, month, year, nL, nP);
+    if (lastChildRow <= DATA_AREA_END) {
+      // Children fit in 200-row table → summary at DATA_AREA_END + 3 (row 209)
+      writeSummary(ws, DATA_AREA_END + 3, month, year, nL, nP);
     } else {
-      // Children overflow → 2 empty rows gap, then summary
+      // Children overflow (>200) → summary right after data with 2-row gap
       writeSummary(ws, lastChildRow + 3, month, year, nL, nP);
     }
   }

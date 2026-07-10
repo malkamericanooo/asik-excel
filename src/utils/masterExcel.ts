@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
 import type { ChildRecord, MasterData, SheetName, VaccineKey } from '../types';
 import { ALL_SHEETS } from '../types';
-import { VACCINE_ORDER, VACCINE_COLUMN_INDEX } from './vaccineMapping';
+import { VACCINE_ORDER, VACCINE_COLUMN_INDEX, VACCINE_COLUMN_LABELS } from './vaccineMapping';
 import { isInMonthYear, BULAN_INDONESIA } from './dateUtils';
 import { sanitizeForExcel } from './sanitizer';
 
@@ -321,22 +321,37 @@ export async function buildMasterExcel(
     const { nL, nP } = countVaccines(children, month, year);
     for (let dr = 0; dr < 4; dr++) {
       const row = ws.getRow(summaryRow + dr);
+      // Apply template styles to all columns
       for (let c = 1; c <= TOTAL_COLS; c++) {
         const tmpl = summaryTemplate[dr][c - 1];
         row.getCell(c).style = cloneStyle(tmpl.style);
-        row.getCell(c).value = tmpl.value;
       }
 
       if (dr === 0) {
+        // Row 0: "Jumlah" label + vaccine names with colors
         row.getCell(SUMMARY_LABEL_COL).value =
           `Jumlah Imunisasi Bulan ${BULAN_INDONESIA[month]} ${year}`;
+        for (const vk of VACCINE_ORDER) {
+          const cL = VACCINE_COLUMN_INDEX[vk] + 1;
+          row.getCell(cL).value = VACCINE_COLUMN_LABELS[vk];
+        }
+      } else if (dr === 1) {
+        // Row 1: L/P sub-headers for each vaccine
+        for (const vk of VACCINE_ORDER) {
+          const cL = VACCINE_COLUMN_INDEX[vk] + 1;
+          row.getCell(cL).value = 'L';
+          row.getCell(cL + 1).value = 'P';
+        }
       } else if (dr === 2) {
+        // Row 2: Counts per L/P
         for (const vk of VACCINE_ORDER) {
           const cL = VACCINE_COLUMN_INDEX[vk] + 1;
           row.getCell(cL).value = nL[vk];
           row.getCell(cL + 1).value = nP[vk];
         }
       } else if (dr === 3) {
+        // Row 3: "Total L + P" label + totals
+        row.getCell(SUMMARY_LABEL_COL).value = 'Total L + P';
         for (const vk of VACCINE_ORDER) {
           const cL = VACCINE_COLUMN_INDEX[vk] + 1;
           row.getCell(cL).value = nL[vk] + nP[vk];

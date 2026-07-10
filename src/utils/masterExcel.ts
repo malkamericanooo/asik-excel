@@ -46,6 +46,96 @@ async function cleanTemplate(templateBuffer: ArrayBuffer): Promise<ArrayBuffer> 
 
     zip.file(file, content);
   }
+
+  return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
+}
+
+/**
+ * Post-process exceljs output: remove phantom sheets created by exceljs
+ * due to the template having non-standard sheetId values (12-19).
+ * exceljs creates EMPTY sheets for ALL missing IDs, bloating the file.
+ */
+async function stripPhantomSheets(outputBuffer: ArrayBuffer): Promise<ArrayBuffer> {
+  const zip = await JSZip.loadAsync(outputBuffer);
+
+  // 1. Read workbook.xml to get real sheet definitions
+  const wbContent = await zip.file('xl/workbook.xml')!.async('string');
+  const realSheets: Array<{ name: string; rId: string }> = [];
+  const sheetTags = wbContent.match(/<sheet [^>]*\/?>/g) || [];
+  for (const tag of sheetTags) {
+    const nameMatch = tag.match(/name="([^"]+)"/);
+    const rIdMatch = tag.match(/r:id="([^"]+)"/);
+    if (nameMatch && rIdMatch) {
+      realSheets.push({ name: nameMatch[1], rId: rIdMatch[1] });
+    }
+  }
+
+  // Only keep sheets that have a name (named sheets). Phantom sheets have empty names.
+  const namedSheets = realSheets.filter(s => s.name.trim().length > 0);
+
+  // 2. Read rels to find which sheet files the named sheets reference
+  const relsContent = await zip.file('xl/_rels/workbook.xml.rels')!.async('string');
+  const validSheetsPaths = new Set<string>();
+  for (const sheet of namedSheets) {
+    const relMatch = relsContent.match(
+      new RegExp(`Id="${sheet.rId}"[^>]*Target="([^"]+)"`),
+    ) || relsContent.match(
+      new RegExp(`Target="([^"]+)"[^>]*Id="${sheet.rId}"`),
+    );
+    if (relMatch) {
+      validSheetsPaths.add(relMatch[1]);
+    }
+  }
+
+  // 3. Find ALL sheet XML files in the zip
+  const allSheetFiles = Object.keys(zip.files).filter(
+    (f) => f.startsWith('xl/worksheets/sheet') && f.endsWith('.xml'),
+  );
+
+  // 4. Remove sheets not in the valid set
+  for (const file of allSheetFiles) {
+    const relPath = file.replace('xl/worksheets/', '');
+    if (!validSheetsPaths.has(relPath) && !validSheetsPaths.has('worksheets/' + relPath)) {
+      zip.remove(file);
+    }
+  }
+
+  // 5. Fix workbook.xml: keep only named sheet definitions
+  // Extract the <sheets> section and rebuild it with only named sheets
+  const sheetsStart = wbContent.indexOf('<sheets>');
+  const sheetsEnd = wbContent.indexOf('</sheets>');
+  if (sheetsStart >= 0 && sheetsEnd > sheetsStart) {
+    const before = wbContent.substring(0, sheetsStart + '<sheets>'.length);
+    const after = wbContent.substring(sheetsEnd);
+    const namedDefs = namedSheets.map((s, i) => {
+      // Get original tag but update sheetId to be sequential
+      const origTag = sheetTags.find(t => t.includes(`name="${s.name}"`)) || '';
+      return origTag.replace(/sheetId="\d+"/, `sheetId="${i + 1}"`);
+    });
+    const fixedWb = before + '\n    ' + namedDefs.join('\n    ') + '\n  ' + after;
+    zip.file('xl/workbook.xml', fixedWb);
+  }
+
+  // 6. Fix Content_Types.xml: remove references to removed sheets
+  let ctContent = await zip.file('[Content_Types].xml')!.async('string');
+  // Remove Override entries for sheets not in the valid set
+  for (const file of allSheetFiles) {
+    const relPath = file.replace('xl/worksheets/', '');
+    if (!validSheetsPaths.has(relPath) && !validSheetsPaths.has('worksheets/' + relPath)) {
+      const overridePattern = new RegExp(
+        `<Override PartName="/${file}"[^>]*/>`,
+        'g',
+      );
+      ctContent = ctContent.replace(overridePattern, '');
+      // Also remove the sheet's .rels file if it exists
+      const relsFile = file + '.rels';
+      if (zip.files[relsFile]) {
+        zip.remove(relsFile);
+      }
+    }
+  }
+  zip.file('[Content_Types].xml', ctContent);
+
   return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
 }
 
@@ -191,7 +281,11 @@ export async function buildMasterExcel(
   }
 
   const buf = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
-  return new Blob([buf], {
+
+  // Post-process: remove phantom sheets from output
+  const cleanedBuf = await stripPhantomSheets(buf);
+
+  return new Blob([cleanedBuf], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
 }

@@ -11,6 +11,43 @@ const FIXED_TABLE_ROWS = 200;
 const DATA_AREA_END = FIRST_DATA_ROW + FIXED_TABLE_ROWS - 1; // row 206
 const SUMMARY_LABEL_COL = 7; // Column G (1-based)
 const DATE_FMT = 'dd-mmm-yy';
+const DATA_COLUMNS = 49; // A = 1, AW = 49
+
+/**
+ * Pre-process template via JSZip:
+ * 1. Strip ALL cell `<v>` values (clear data, preserve cell styles/borders)
+ * 2. Strip ALL `<f>` formula tags (prevent shared formula errors)
+ * 3. Strip ALL `<mergeCell>` elements (prevent stale merge references)
+ */
+async function cleanTemplate(templateBuffer: ArrayBuffer): Promise<ArrayBuffer> {
+  const zip = await JSZip.loadAsync(templateBuffer);
+  const sheetFiles = Object.keys(zip.files).filter(
+    (f) => f.startsWith('xl/worksheets/sheet') && f.endsWith('.xml'),
+  );
+  for (const file of sheetFiles) {
+    let content = await zip.file(file)!.async('string');
+
+    // 1. Remove cell values <v>...</v> only from DATA rows (r >= 7)
+    //    This preserves header values (rows 1-6) while clearing old data
+    content = content.replace(/<row r="(\d+)"[^>]*>[\s\S]*?<\/row>/g, (match, rStr) => {
+      const r = parseInt(rStr, 10);
+      if (r >= 7) {
+        return match.replace(/<v>[\s\S]*?<\/v>/g, '');
+      }
+      return match;
+    });
+
+    // 2. Remove ALL formulas: <f>...</f> and <f ... />
+    content = content.replace(/<f[^>]*>[\s\S]*?<\/f>/g, '');
+    content = content.replace(/<f[^>]*\/>/g, '');
+
+    // 3. Remove ALL mergeCell definitions (they reference old positions)
+    content = content.replace(/<mergeCells[^>]*>[\s\S]*?<\/mergeCells>/g, '');
+
+    zip.file(file, content);
+  }
+  return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
+}
 
 function countVaccines(
   children: ChildRecord[],
@@ -43,40 +80,6 @@ const SHEET_KELURAHAN_LABEL: Record<SheetName, string> = {
   Kejar: '',
 };
 
-async function stripSharedFormulas(templateBuffer: ArrayBuffer): Promise<ArrayBuffer> {
-  const zip = await JSZip.loadAsync(templateBuffer);
-  const sheetFiles = Object.keys(zip.files).filter(
-    (f) => f.startsWith('xl/worksheets/sheet') && f.endsWith('.xml'),
-  );
-  for (const file of sheetFiles) {
-    let content = await zip.file(file)!.async('string');
-    // Remove all formula tags: <f>...</f> and <f ... /> (self-closing)
-    content = content.replace(/<f[^>]*>[\s\S]*?<\/f>/g, '');
-    content = content.replace(/<f[^>]*\/>/g, '');
-    zip.file(file, content);
-  }
-  return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
-}
-
-function clearOldSummary(ws: ExcelJS.Worksheet): void {
-  const maxScan = Math.min(ws.rowCount, 2000);
-  for (let r = FIRST_DATA_ROW; r <= maxScan; r++) {
-    const cell = ws.getRow(r).getCell(SUMMARY_LABEL_COL);
-    const val = cell.value;
-    if (val && typeof val === 'string' && val.startsWith('Jumlah')) {
-      cell.value = null;
-      // Also clear cells in the block (rows 724-728 etc.)
-      for (let dr = 1; dr <= 4; dr++) {
-        const row = ws.getRow(r + dr);
-        for (let c = 1; c <= 49; c++) {
-          row.getCell(c).value = null;
-        }
-      }
-      break;
-    }
-  }
-}
-
 function writeSummary(
   ws: ExcelJS.Worksheet,
   startRow: number,
@@ -106,14 +109,29 @@ function writeSummary(
   }
 }
 
+function writeChildCell(
+  row: ExcelJS.Row,
+  col: number,
+  value: string | number | null | undefined,
+  numFmt?: string,
+): void {
+  const cell = row.getCell(col);
+  cell.value = value ?? null;
+  if (numFmt) {
+    cell.numFmt = numFmt;
+  } else {
+    cell.numFmt = undefined;
+  }
+}
+
 export async function buildMasterExcel(
   masterData: MasterData,
   month: number,
   year: number,
   templateBuffer: ArrayBuffer,
 ): Promise<Blob> {
-  // Strip shared formulas before exceljs loads (avoids "Shared Formula master" crash)
-  const cleanedBuffer = await stripSharedFormulas(templateBuffer);
+  // Pre-clean template: strip values, formulas, merge cells (preserves styles/borders)
+  const cleanedBuffer = await cleanTemplate(templateBuffer);
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(cleanedBuffer);
 
@@ -127,50 +145,38 @@ export async function buildMasterExcel(
     ws.getCell('A4').value = sheetName === 'MABUUN' ? '``' : 'Kelurahan/Desa';
     ws.getCell('C4').value = `: ${SHEET_KELURAHAN_LABEL[sheetName]}`;
 
-    // --- Clear old summary from template ---
-    clearOldSummary(ws);
-
     const lastChildRow = FIRST_DATA_ROW + children.length - 1;
 
     // --- Write children data ---
-    children.forEach((child, idx) => {
+    for (let idx = 0; idx < children.length; idx++) {
+      const child = children[idx];
       const r = FIRST_DATA_ROW + idx;
       const row = ws.getRow(r);
-      row.getCell(1).value = idx + 1;
-      row.getCell(1).numFmt = undefined; // Force number, not date
-      row.getCell(2).value = sanitizeForExcel(child.nama);
-      row.getCell(2).numFmt = undefined;
-      row.getCell(3).value = child.jk;
-      row.getCell(3).numFmt = undefined;
-      if (child.tanggalLahirSerial) {
-        row.getCell(4).value = child.tanggalLahirSerial;
-        row.getCell(4).numFmt = DATE_FMT;
-      }
-      row.getCell(5).value = child.nik || null;
-      row.getCell(5).numFmt = undefined;
-      row.getCell(6).value = sanitizeForExcel(child.namaOrangTua);
-      row.getCell(6).numFmt = undefined;
-      row.getCell(7).value = sanitizeForExcel(child.alamat);
-      row.getCell(7).numFmt = undefined;
+      writeChildCell(row, 1, idx + 1);
+      writeChildCell(row, 2, sanitizeForExcel(child.nama));
+      writeChildCell(row, 3, child.jk);
+      writeChildCell(row, 4, child.tanggalLahirSerial, DATE_FMT);
+      writeChildCell(row, 5, child.nik || null);
+      writeChildCell(row, 6, sanitizeForExcel(child.namaOrangTua));
+      writeChildCell(row, 7, sanitizeForExcel(child.alamat));
+
       for (const vk of VACCINE_ORDER) {
         const cL = VACCINE_COLUMN_INDEX[vk] + 1;
         const s = child.vaccines[vk];
         if (s) {
           if (child.jk === 'L') {
-            row.getCell(cL).value = s;
-            row.getCell(cL).numFmt = DATE_FMT;
-            row.getCell(cL + 1).value = null;
+            writeChildCell(row, cL, s, DATE_FMT);
+            writeChildCell(row, cL + 1, null);
           } else {
-            row.getCell(cL).value = null;
-            row.getCell(cL + 1).value = s;
-            row.getCell(cL + 1).numFmt = DATE_FMT;
+            writeChildCell(row, cL, null);
+            writeChildCell(row, cL + 1, s, DATE_FMT);
           }
         } else {
-          row.getCell(cL).value = null;
-          row.getCell(cL + 1).value = null;
+          writeChildCell(row, cL, null);
+          writeChildCell(row, cL + 1, null);
         }
       }
-    });
+    }
 
     // --- Write summary with 2-row gap ---
     const { nL, nP } = countVaccines(children, month, year);

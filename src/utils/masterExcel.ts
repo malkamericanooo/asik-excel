@@ -12,7 +12,6 @@ const FIRST_DATA_ROW = 7;
 const TOTAL_COLS = 49;
 const SUMMARY_LABEL_COL = 7; // Column G
 const DATE_FMT = 'dd-mmm-yy';
-const TABLE_SIZE = 200; // Fixed 200-row table
 
 /** Find summary start row in xlsx WorkSheet (used by tests). */
 export function findSummaryStartRow(ws: XLSX.WorkSheet): number {
@@ -267,11 +266,12 @@ export async function buildMasterExcel(
     ws.getCell('A4').value = sheetName === 'MABUUN' ? '' : 'Kelurahan/Desa';
     ws.getCell('C4').value = `: ${SHEET_KELURAHAN_LABEL[sheetName]}`;
 
-    // Clear ALL rows from data start onwards
+    // Clear ALL rows from data start onwards (values AND styles)
     for (let r = FIRST_DATA_ROW; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
       for (let c = 1; c <= TOTAL_COLS; c++) {
         row.getCell(c).value = null;
+        row.getCell(c).style = {};
       }
       row.commit();
     }
@@ -314,10 +314,8 @@ export async function buildMasterExcel(
       row.commit();
     });
 
-    // Summary position: fixed 200-row table or overflow
-    const summaryRow = children.length <= TABLE_SIZE
-      ? FIRST_DATA_ROW + TABLE_SIZE + 2  // Row 209
-      : FIRST_DATA_ROW + children.length + 2;
+    // Summary position: right after data + 1 blank separator row
+    const summaryRow = FIRST_DATA_ROW + children.length + 1;
 
     // Write summary block
     const { nL, nP } = countVaccines(children, month, year);

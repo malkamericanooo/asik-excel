@@ -7,12 +7,12 @@ import { VACCINE_ORDER, VACCINE_COLUMN_INDEX } from './vaccineMapping';
 import { isInMonthYear, BULAN_INDONESIA } from './dateUtils';
 import { sanitizeForExcel } from './sanitizer';
 
-// ExcelJS uses 1-based indexing for both rows and columns
+// ExcelJS uses 1-based indexing
 const FIRST_DATA_ROW = 7;
 const TOTAL_COLS = 49;
-const SUMMARY_LABEL_COL = 7; // Column G (1-based)
+const SUMMARY_LABEL_COL = 7; // Column G
 const DATE_FMT = 'dd-mmm-yy';
-const TABLE_SIZE = 200; // Fixed table size: rows 7-206
+const TABLE_SIZE = 200; // Fixed 200-row table
 
 /** Find summary start row in xlsx WorkSheet (used by tests). */
 export function findSummaryStartRow(ws: XLSX.WorkSheet): number {
@@ -55,13 +55,11 @@ const SHEET_KELURAHAN_LABEL: Record<SheetName, string> = {
   Kejar: '',
 };
 
-/** Deep-clone an ExcelJS style. */
 function cloneStyle(style: Partial<ExcelJS.Style>): Partial<ExcelJS.Style> {
   if (!style || Object.keys(style).length === 0) return {};
   return JSON.parse(JSON.stringify(style));
 }
 
-/** Save a row's styles (1-based cols 1..TOTAL_COLS). */
 function saveRowStyles(ws: ExcelJS.Worksheet, rowNum: number): Partial<ExcelJS.Style>[] {
   const styles: Partial<ExcelJS.Style>[] = [];
   const row = ws.getRow(rowNum);
@@ -71,7 +69,6 @@ function saveRowStyles(ws: ExcelJS.Worksheet, rowNum: number): Partial<ExcelJS.S
   return styles;
 }
 
-/** Save a 4-row summary block: styles + values. */
 function saveSummaryBlock(
   ws: ExcelJS.Worksheet,
   startRow: number,
@@ -92,40 +89,135 @@ function saveSummaryBlock(
   return block;
 }
 
-// ─── Pre-processing: cleanTemplate ───────────────────────────────────
+// ─── Pre-processing via JSZip ────────────────────────────────────────
 /**
- * Clean template via JSZip BEFORE exceljs load:
- * 1. Strip <v> values from rows >= 7 (keep styles via s= attribute)
- * 2. Strip formula tags (<f>) to prevent exceljs "Shared Formula" errors
- * 3. Strip <mergeCells> to prevent stale merge references
+ * Prepare template for ExcelJS:
+ * 1. Renumber sheetIds to sequential 1,2,3... (prevents phantom sheets)
+ * 2. Rename sheet XML files to sheet1.xml, sheet2.xml, ...
+ * 3. Strip formulas (<f> tags) — ExcelJS can't handle shared formulas
+ * 4. Strip cell values from rows >= 7 (keep styles via s= attribute)
+ * 5. Strip mergeCells — we re-create them programmatically
  */
-async function cleanTemplate(templateBuffer: ArrayBuffer): Promise<ArrayBuffer> {
+async function prepareTemplate(templateBuffer: ArrayBuffer): Promise<ArrayBuffer> {
   const zip = await JSZip.loadAsync(templateBuffer);
+
+  // ── Step 1: Renumber sheetIds & rename files ──
+  const wbXml = await zip.file('xl/workbook.xml')?.async('string');
+  const relsXml = await zip.file('xl/_rels/workbook.xml.rels')?.async('string');
+  if (wbXml && relsXml) {
+    // Parse sheet entries: <sheet name="MABUUN" sheetId="14" r:id="rId1"/>
+    const sheetEntries: { name: string; oldId: string; rId: string }[] = [];
+    const sheetRegex = /<sheet\s+([^>]*?)\/>/g;
+    let m;
+    while ((m = sheetRegex.exec(wbXml)) !== null) {
+      const attrs = m[1];
+      const nameMatch = attrs.match(/name="([^"]*)"/);
+      const idMatch = attrs.match(/sheetId="(\d+)"/);
+      const rIdMatch = attrs.match(/r:id="([^"]*)"/);
+      if (nameMatch && idMatch && rIdMatch) {
+        sheetEntries.push({ name: nameMatch[1], oldId: idMatch[1], rId: rIdMatch[1] });
+      }
+    }
+
+    // Map rId → old file path from rels
+    const rIdToTarget: Record<string, string> = {};
+    const relRegex = /<Relationship\s+([^>]*?)\/>/g;
+    while ((m = relRegex.exec(relsXml)) !== null) {
+      const attrs = m[1];
+      const idMatch = attrs.match(/Id="([^"]*)"/);
+      const targetMatch = attrs.match(/Target="([^"]*)"/);
+      if (idMatch && targetMatch) {
+        rIdToTarget[idMatch[1]] = targetMatch[1];
+      }
+    }
+
+    // Rename sheet files: sheetOLD.xml → sheetNEW.xml (sequential 1-based)
+    let newWbXml = wbXml;
+    let newRelsXml = relsXml;
+
+    for (let i = 0; i < sheetEntries.length; i++) {
+      const entry = sheetEntries[i];
+      const newId = String(i + 1);
+      const oldTarget = rIdToTarget[entry.rId]; // e.g., "worksheets/sheet14.xml"
+      const newTarget = `worksheets/sheet${newId}.xml`;
+
+      if (oldTarget && oldTarget !== newTarget) {
+        const oldPath = `xl/${oldTarget}`;
+        const newPath = `xl/${newTarget}`;
+
+        // Copy XML file content to new name
+        const content = await zip.file(oldPath)?.async('string');
+        if (content) {
+          zip.file(newPath, content);
+          if (oldPath !== newPath) zip.remove(oldPath);
+        }
+
+        // Copy rels file if exists
+        const oldRels = oldPath.replace('worksheets/', 'worksheets/_rels/') + '.rels';
+        const newRels = newPath.replace('worksheets/', 'worksheets/_rels/') + '.rels';
+        const relsContent = await zip.file(oldRels)?.async('string');
+        if (relsContent) {
+          zip.file(newRels, relsContent);
+          if (oldRels !== newRels) zip.remove(oldRels);
+        }
+
+        // Update rels: Target="worksheets/sheet14.xml" → Target="worksheets/sheet1.xml"
+        newRelsXml = newRelsXml.replace(
+          `Target="${oldTarget}"`,
+          `Target="${newTarget}"`,
+        );
+      }
+
+      // Update workbook.xml: sheetId="14" → sheetId="1"
+      newWbXml = newWbXml.replace(
+        `sheetId="${entry.oldId}"`,
+        `sheetId="${newId}"`,
+      );
+    }
+
+    zip.file('xl/workbook.xml', newWbXml);
+    zip.file('xl/_rels/workbook.xml.rels', newRelsXml);
+
+    // Fix [Content_Types].xml — update PartNames for renamed sheets
+    const ctXml = await zip.file('[Content_Types].xml')?.async('string');
+    if (ctXml) {
+      let newCtXml = ctXml;
+      for (let i = 0; i < sheetEntries.length; i++) {
+        const oldTarget = rIdToTarget[sheetEntries[i].rId];
+        const newTarget = `worksheets/sheet${i + 1}.xml`;
+        if (oldTarget && oldTarget !== newTarget) {
+          newCtXml = newCtXml.replace(
+            `/xl/${oldTarget}`,
+            `/xl/${newTarget}`,
+          );
+        }
+      }
+      zip.file('[Content_Types].xml', newCtXml);
+    }
+  }
+
+  // ── Step 2: Clean sheet XML content ──
   const sheetFiles = Object.keys(zip.files).filter(
-    (f) => f.startsWith('xl/worksheets/sheet') && f.endsWith('.xml'),
+    (f) => f.match(/^xl\/worksheets\/sheet\d+\.xml$/),
   );
 
   for (const file of sheetFiles) {
     let xml = await zip.file(file)!.async('string');
 
-    // Strip formulas: <f>...</f> and <f ... />
+    // Strip formulas
     xml = xml.replace(/<f[^>]*>.*?<\/f>/gs, '');
     xml = xml.replace(/<f[^>]*\/>/g, '');
 
-    // Strip values from data rows (row >= 7) but keep style references.
-    // Each cell looks like: <c r="B7" s="5"><v>...</v></c>
-    // We want to keep <c r="B7" s="5"></c> (preserves style)
+    // Strip values from rows >= 7 (keep cell element with style attribute)
     xml = xml.replace(/<c\s+([^>]*?)>\s*<v>[^<]*<\/v>\s*<\/c>/g, (match, attrs) => {
-      // Parse row number from r="XX7" attribute
       const rMatch = attrs.match(/r="[A-Z]+(\d+)"/);
       if (rMatch && parseInt(rMatch[1]) >= FIRST_DATA_ROW) {
-        // Strip value but keep cell with style
         return `<c ${attrs}></c>`;
       }
-      return match; // Keep header rows as-is
+      return match;
     });
 
-    // Strip mergeCells section entirely to prevent stale references
+    // Strip mergeCells — we re-create them programmatically
     xml = xml.replace(/<mergeCells[^>]*>[\s\S]*?<\/mergeCells>/g, '');
     xml = xml.replace(/<mergeCells[^>]*\/>/g, '');
 
@@ -135,103 +227,17 @@ async function cleanTemplate(templateBuffer: ArrayBuffer): Promise<ArrayBuffer> 
   return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
 }
 
-// ─── Post-processing: stripPhantomSheets ─────────────────────────────
-/**
- * Remove phantom sheets from ExcelJS output via JSZip.
- * ExcelJS creates empty sheets to fill gaps in non-sequential sheetIds.
- * E.g., template has ids [12,13,14,15,16,17,19] → ExcelJS fills 1-11,18.
- */
-async function stripPhantomSheets(outputBuffer: ArrayBuffer): Promise<ArrayBuffer> {
-  const zip = await JSZip.loadAsync(outputBuffer);
-
-  // 1. Read workbook.xml to find which sheets are real (have names)
-  const wbXml = await zip.file('xl/workbook.xml')?.async('string');
-  if (!wbXml) return outputBuffer;
-
-  // Extract real sheet references: <sheet name="MABUUN" sheetId="14" r:id="rId1"/>
-  const sheetRefs: { name: string; rId: string }[] = [];
-  const sheetRegex = /<sheet\s+[^>]*name="([^"]*)"[^>]*r:id="([^"]*)"[^>]*\/>/g;
-  let match;
-  while ((match = sheetRegex.exec(wbXml)) !== null) {
-    sheetRefs.push({ name: match[1], rId: match[2] });
-  }
-
-  // 2. Read workbook.xml.rels to map rId → sheet file path
-  const relsXml = await zip.file('xl/_rels/workbook.xml.rels')?.async('string');
-  if (!relsXml) return outputBuffer;
-
-  const rIdToFile: Record<string, string> = {};
-  const relRegex = /<Relationship\s+[^>]*Id="([^"]*)"[^>]*Target="([^"]*)"[^>]*\/>/g;
-  while ((match = relRegex.exec(relsXml)) !== null) {
-    rIdToFile[match[1]] = match[2];
-  }
-
-  // 3. Determine which sheet files are real
-  const realSheetFiles = new Set<string>();
-  for (const ref of sheetRefs) {
-    const target = rIdToFile[ref.rId];
-    if (target) {
-      // Target is relative to xl/, e.g., "worksheets/sheet14.xml"
-      realSheetFiles.add(`xl/${target}`);
-    }
-  }
-
-  // 4. Find and remove phantom sheet files
-  const allSheetFiles = Object.keys(zip.files).filter(
-    (f) => f.match(/^xl\/worksheets\/sheet\d+\.xml$/) && !f.endsWith('.rels'),
-  );
-
-  let removedCount = 0;
-  for (const sheetFile of allSheetFiles) {
-    if (!realSheetFiles.has(sheetFile)) {
-      zip.remove(sheetFile);
-      // Also remove its .rels if it exists
-      const relsFile = sheetFile.replace('worksheets/', 'worksheets/_rels/') + '.rels';
-      if (zip.files[relsFile]) zip.remove(relsFile);
-      removedCount++;
-    }
-  }
-
-  if (removedCount === 0) return outputBuffer;
-
-  // 5. Fix [Content_Types].xml — remove overrides for deleted sheets
-  const ctXml = await zip.file('[Content_Types].xml')?.async('string');
-  if (ctXml) {
-    const fixedCt = ctXml.replace(
-      /<Override[^>]*PartName="\/xl\/worksheets\/sheet\d+\.xml"[^>]*\/>/g,
-      (overrideMatch) => {
-        const partMatch = overrideMatch.match(/PartName="\/([^"]+)"/);
-        if (partMatch && !realSheetFiles.has(partMatch[1])) {
-          return ''; // Remove override for phantom sheet
-        }
-        return overrideMatch;
-      },
-    );
-    zip.file('[Content_Types].xml', fixedCt);
-  }
-
-  return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
-}
-
 // ─── Main build function ─────────────────────────────────────────────
-/**
- * Build Master Excel using exceljs to preserve all template styles.
- * Pipeline:
- * 1. cleanTemplate() — JSZip strip values/formulas/mergeCells from rows >= 7
- * 2. ExcelJS load — preserves all styles (fills, borders, fonts)
- * 3. Write data + summary per sheet
- * 4. stripPhantomSheets() — JSZip remove phantom sheet XML files
- */
 export async function buildMasterExcel(
   masterData: MasterData,
   month: number,
   year: number,
   templateBuffer: ArrayBuffer,
 ): Promise<Blob> {
-  // 1. Clean template (strip old data, formulas, merges)
-  const cleanedBuffer = await cleanTemplate(templateBuffer);
+  // 1. Prepare template (renumber IDs, strip data/formulas/merges)
+  const cleanedBuffer = await prepareTemplate(templateBuffer);
 
-  // 2. Load with exceljs (all styles preserved)
+  // 2. Load with ExcelJS (styles preserved, no phantom sheets)
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(cleanedBuffer);
 
@@ -241,13 +247,12 @@ export async function buildMasterExcel(
 
     const children = masterData[sheetName];
 
-    // --- Save data row style from template row 7 BEFORE we clear ---
+    // Save styles BEFORE clearing
     const dataRowStyles = saveRowStyles(ws, FIRST_DATA_ROW);
 
-    // --- Find & save summary template (row where "Jumlah" was) ---
+    // Find & save summary template
     let templateSummaryStart = -1;
-    const maxScan = Math.min(ws.rowCount, 1000);
-    for (let r = FIRST_DATA_ROW; r <= maxScan; r++) {
+    for (let r = FIRST_DATA_ROW; r <= Math.min(ws.rowCount, 1000); r++) {
       const val = ws.getRow(r).getCell(SUMMARY_LABEL_COL).value;
       if (val && typeof val === 'string' && val.startsWith('Jumlah')) {
         templateSummaryStart = r;
@@ -257,14 +262,12 @@ export async function buildMasterExcel(
     if (templateSummaryStart === -1) templateSummaryStart = ws.rowCount - 3;
     const summaryTemplate = saveSummaryBlock(ws, templateSummaryStart);
 
-    // --- Update header cells ---
+    // Update header
     ws.getCell('C3').value = `: ${BULAN_INDONESIA[month]} ${year}`;
-    const kelLabel = sheetName === 'MABUUN' ? '' : 'Kelurahan/Desa';
-    ws.getCell('A4').value = kelLabel;
+    ws.getCell('A4').value = sheetName === 'MABUUN' ? '' : 'Kelurahan/Desa';
     ws.getCell('C4').value = `: ${SHEET_KELURAHAN_LABEL[sheetName]}`;
 
-    // --- Clear all rows from FIRST_DATA_ROW onwards ---
-    // cleanTemplate already stripped values, but exceljs may have loaded some
+    // Clear ALL rows from data start onwards
     for (let r = FIRST_DATA_ROW; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
       for (let c = 1; c <= TOTAL_COLS; c++) {
@@ -273,12 +276,11 @@ export async function buildMasterExcel(
       row.commit();
     }
 
-    // --- Write children starting at FIRST_DATA_ROW ---
+    // Write children
     children.forEach((child, idx) => {
       const r = FIRST_DATA_ROW + idx;
       const row = ws.getRow(r);
 
-      // Apply template data row styles
       for (let c = 1; c <= TOTAL_COLS; c++) {
         row.getCell(c).style = cloneStyle(dataRowStyles[c - 1]);
       }
@@ -307,28 +309,18 @@ export async function buildMasterExcel(
             row.getCell(cL + 1).value = serial;
             row.getCell(cL + 1).numFmt = DATE_FMT;
           }
-        } else {
-          row.getCell(cL).value = null;
-          row.getCell(cL + 1).value = null;
         }
       }
       row.commit();
     });
 
-    // --- Calculate summary position (fixed 200-row table or overflow) ---
-    const dataEndRow = FIRST_DATA_ROW + children.length - 1;
-    let summaryRow: number;
-    if (children.length <= TABLE_SIZE) {
-      // Fixed layout: summary at row 209 (7 + 200 + 2 blank rows)
-      summaryRow = FIRST_DATA_ROW + TABLE_SIZE + 2;
-    } else {
-      // Overflow: summary 3 rows after last data row
-      summaryRow = dataEndRow + 3;
-    }
+    // Summary position: fixed 200-row table or overflow
+    const summaryRow = children.length <= TABLE_SIZE
+      ? FIRST_DATA_ROW + TABLE_SIZE + 2  // Row 209
+      : FIRST_DATA_ROW + children.length + 2;
 
-    // --- Write summary block ---
+    // Write summary block
     const { nL, nP } = countVaccines(children, month, year);
-
     for (let dr = 0; dr < 4; dr++) {
       const row = ws.getRow(summaryRow + dr);
       for (let c = 1; c <= TOTAL_COLS; c++) {
@@ -356,44 +348,24 @@ export async function buildMasterExcel(
       row.commit();
     }
 
-    // --- Re-add header merges (A5:A6, B5:B6, ..., G5:G6 + vaccine header pairs) ---
-    // These were stripped by cleanTemplate, re-add them
+    // Re-add merges (headers + summary)
     try {
-      // Fixed column header merges (rows 5-6)
-      for (let c = 1; c <= 7; c++) {
-        ws.mergeCells(5, c, 6, c);
-      }
-      // Vaccine header merges (each vaccine spans 2 cols in row 5)
+      for (let c = 1; c <= 7; c++) ws.mergeCells(5, c, 6, c);
       for (const vk of VACCINE_ORDER) {
         const cL = VACCINE_COLUMN_INDEX[vk] + 1;
         ws.mergeCells(5, cL, 5, cL + 1);
       }
-    } catch { /* ignore if merges already exist */ }
-
-    // --- Add summary merges ---
-    try {
-      // "Jumlah" label spans 2 rows
       ws.mergeCells(summaryRow, SUMMARY_LABEL_COL, summaryRow + 1, SUMMARY_LABEL_COL);
-      // Vaccine headers in summary row 0 (each spans 2 cols)
       for (const vk of VACCINE_ORDER) {
         const cL = VACCINE_COLUMN_INDEX[vk] + 1;
         ws.mergeCells(summaryRow, cL, summaryRow, cL + 1);
-      }
-      // Total L+P row: each vaccine pair spans 2 cols
-      for (const vk of VACCINE_ORDER) {
-        const cL = VACCINE_COLUMN_INDEX[vk] + 1;
         ws.mergeCells(summaryRow + 3, cL, summaryRow + 3, cL + 1);
       }
-    } catch { /* ignore merge conflicts */ }
+    } catch { /* ignore */ }
   }
 
-  // 3. Write ExcelJS output
-  const ejsBuf = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
-
-  // 4. Post-process: strip phantom sheets
-  const finalBuf = await stripPhantomSheets(ejsBuf);
-
-  return new Blob([finalBuf], {
+  const buf = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+  return new Blob([buf], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
 }

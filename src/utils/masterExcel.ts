@@ -207,7 +207,7 @@ async function prepareTemplate(templateBuffer: ArrayBuffer): Promise<ArrayBuffer
     xml = xml.replace(/<f[^>]*>.*?<\/f>/gs, '');
     xml = xml.replace(/<f[^>]*\/>/g, '');
 
-    // Strip values from rows >= 7 (keep cell element with style attribute)
+    // Strip values from ALL rows >= 7 (keep cell element with style attribute)
     xml = xml.replace(/<c\s+([^>]*?)>\s*<v>[^<]*<\/v>\s*<\/c>/g, (match, attrs) => {
       const rMatch = attrs.match(/r="[A-Z]+(\d+)"/);
       if (rMatch && parseInt(rMatch[1]) >= FIRST_DATA_ROW) {
@@ -233,6 +233,17 @@ export async function buildMasterExcel(
   year: number,
   templateBuffer: ArrayBuffer,
 ): Promise<Blob> {
+  // 0. Find summary positions from ORIGINAL template using XLSX (fast, before values are stripped)
+  const origWb = XLSX.read(new Uint8Array(templateBuffer), { type: 'array' });
+  const summaryPositions: Record<string, number> = {};
+  for (const name of ALL_SHEETS) {
+    const origWs = origWb.Sheets[name];
+    if (origWs) {
+      // findSummaryStartRow returns 0-based row index; ExcelJS uses 1-based
+      summaryPositions[name] = findSummaryStartRow(origWs) + 1;
+    }
+  }
+
   // 1. Prepare template (renumber IDs, strip data/formulas/merges)
   const cleanedBuffer = await prepareTemplate(templateBuffer);
 
@@ -249,16 +260,8 @@ export async function buildMasterExcel(
     // Save styles BEFORE clearing
     const dataRowStyles = saveRowStyles(ws, FIRST_DATA_ROW);
 
-    // Find & save summary template
-    let templateSummaryStart = -1;
-    for (let r = FIRST_DATA_ROW; r <= Math.min(ws.rowCount, 1000); r++) {
-      const val = ws.getRow(r).getCell(SUMMARY_LABEL_COL).value;
-      if (val && typeof val === 'string' && val.startsWith('Jumlah')) {
-        templateSummaryStart = r;
-        break;
-      }
-    }
-    if (templateSummaryStart === -1) templateSummaryStart = ws.rowCount - 3;
+    // Use pre-calculated summary position (from original template)
+    const templateSummaryStart = summaryPositions[sheetName] ?? ws.rowCount - 3;
     const summaryTemplate = saveSummaryBlock(ws, templateSummaryStart);
 
     // Update header

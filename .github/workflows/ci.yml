@@ -13,18 +13,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Harus sebelum setup-node: setup-node butuh pnpm sudah ada di PATH
-      # untuk menemukan lokasi store-nya saat menyiapkan cache.
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 11
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

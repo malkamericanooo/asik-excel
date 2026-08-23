@@ -6,6 +6,7 @@ import { ALL_SHEETS } from '../types';
 import { VACCINE_ORDER, VACCINE_COLUMN_INDEX, VACCINE_COLUMN_LABELS } from './vaccineMapping';
 import { isInMonthYear, BULAN_INDONESIA } from './dateUtils';
 import { sanitizeForExcel } from './sanitizer';
+import { sortChildrenByBirthDate } from './sortChildren';
 
 // ExcelJS uses 1-based indexing
 const FIRST_DATA_ROW = 7;
@@ -255,7 +256,9 @@ export async function buildMasterExcel(
     const ws = wb.getWorksheet(sheetName);
     if (!ws) continue;
 
-    const children = masterData[sheetName];
+    // Urutkan sebelum ditulis: nomor urut kolom A, posisi blok ringkasan,
+    // dan merge semuanya diturunkan dari urutan ini.
+    const children = sortChildrenByBirthDate(masterData[sheetName]);
 
     // Save styles BEFORE clearing
     const dataRowStyles = saveRowStyles(ws, FIRST_DATA_ROW);

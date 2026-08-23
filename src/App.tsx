@@ -4,6 +4,7 @@ import type { MasterData, UploadLogEntry, ProcessResult, VaccineKey, ChildRecord
 import { ALL_SHEETS } from './types';
 import { createEmptyMasterData, parseAndMergeAsikFile } from './utils/asikParser';
 import { buildMasterExcel, getUploadedVaccines } from './utils/masterExcel';
+import { sortChildrenGroups } from './utils/sortChildren';
 import { loadDefaultTemplate } from './utils/templateLoader';
 import { downloadBlob } from './utils/downloadFile';
 import { BULAN_INDONESIA } from './utils/dateUtils';
@@ -56,15 +57,11 @@ function App() {
   const totalVaccines = VACCINE_ORDER.length;
   const canDownload = totalChildren > 0 && templateBuffer !== null && !isExporting;
 
-  const allChildren = useMemo(() => {
-    const children: ChildRecord[] = [];
-    for (const sheet of ALL_SHEETS) {
-      for (const child of masterData[sheet]) {
-        children.push(child);
-      }
-    }
-    return children;
-  }, [masterData]);
+  // Pratinjau memakai urutan yang sama persis dengan file master hasil export.
+  const allChildren = useMemo(
+    () => sortChildrenGroups(ALL_SHEETS.map((sheet) => masterData[sheet])),
+    [masterData],
+  );
 
   /** Derive current workflow step from state */
   const currentStep = useMemo(() => {

@@ -3,14 +3,7 @@ import type { ChildRecord, MasterData, ProcessResult, SheetName, VaccineKey } fr
 import { classifyKelurahan } from './kelurahanMapping';
 import { dateStringToExcelSerial, parseDateCell } from './dateUtils';
 import { resolveVaccineKey } from './vaccineResolver';
-
-function normalizeKey(s: string): string {
-  return (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
-}
-
-function childKey(nama: string, tglLahir: string): string {
-  return `${normalizeKey(nama)}|${tglLahir}`;
-}
+import { childKey } from './childIdentity';
 
 function findChild(
   masterData: MasterData,

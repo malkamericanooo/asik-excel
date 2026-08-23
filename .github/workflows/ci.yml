@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Harus sebelum setup-node: setup-node butuh pnpm sudah ada di PATH
       # untuk menemukan lokasi store-nya saat menyiapkan cache.
@@ -21,7 +21,7 @@ jobs:
           version: 11
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version-file: '.nvmrc'
           cache: 'pnpm'

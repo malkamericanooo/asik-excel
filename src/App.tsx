@@ -250,6 +250,16 @@ function App() {
         </div>
       </header>
 
+      {/* Ketentuan & kebijakan data: selalu terlihat sebelum memakai alat */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-4">
+        <div role="note" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
+          <strong>Sebelum memakai:</strong> alat ini khusus petugas kesehatan dan kader yang berwenang. Kami (pengembang){' '}
+          <b>tidak menyimpan, tidak melihat, dan tidak memakai data warga</b>: file diproses di browser Anda dan tidak dikirim
+          ke server. Penanggung jawab data adalah <b>instansi kesehatan</b> pengguna. Hasil otomatis bisa keliru, wajib diperiksa.{' '}
+          <a href="/kebijakan.html" className="font-semibold underline underline-offset-2">Baca ketentuan &amp; kebijakan data</a>
+        </div>
+      </div>
+
       <main className="max-w-4xl mx-auto px-4 py-5 space-y-5 pb-12">
         {/* Step 1: Period */}
         <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-shadow hover:shadow-md">
@@ -571,6 +581,9 @@ function App() {
           <p>Data diproses sepenuhnya di browser — tidak ada data yang dikirim ke server.</p>
           <p>Deduplikasi berdasarkan Nama Anak + Tanggal Lahir + Nama Orang Tua.</p>
         </div>
+        <p className="text-center text-xs text-gray-400 pb-2">
+          <a href="/kebijakan.html" className="underline underline-offset-2">Ketentuan &amp; kebijakan data</a> · Penanggung jawab data: instansi kesehatan pengguna
+        </p>
       </main>
 
       {/* Notification Modal */}

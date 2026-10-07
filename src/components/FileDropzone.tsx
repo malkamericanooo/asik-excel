@@ -46,9 +46,9 @@ export function FileDropzone({
 
   if (disabled) {
     return (
-      <div className="w-full py-6 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center gap-2 cursor-not-allowed">
-        <Upload className="w-8 h-8 text-gray-300" />
-        <p className="text-sm text-gray-400">Konfirmasi periode terlebih dahulu</p>
+      <div className="unggah unggah--mati">
+        <p className="unggah-judul">Konfirmasi periode terlebih dahulu</p>
+        <p className="unggah-sub">Pilih bulan dan tahun di langkah 1, lalu tekan Konfirmasi.</p>
       </div>
     );
   }
@@ -58,58 +58,43 @@ export function FileDropzone({
       <div
         {...getRootProps()}
         className={[
-          'w-full py-6 px-4 rounded-xl border-2 border-dashed transition-all duration-200 flex flex-col items-center justify-center gap-2 cursor-pointer',
-          isDragActive && !isDragReject
-            ? 'border-blue-400 bg-blue-50 scale-[1.01]'
-            : isDragReject
-              ? 'border-red-400 bg-red-50'
-              : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50',
+          'unggah',
+          isDragActive && !isDragReject ? 'unggah--seret' : isDragReject ? 'unggah--tolak' : '',
           isProcessing ? 'opacity-70 cursor-wait' : '',
         ].join(' ')}
       >
         <input {...getInputProps()} />
-
-        {isProcessing ? (
-          <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
-        ) : isDragReject ? (
-          <X className="w-8 h-8 text-red-400" />
-        ) : isDragActive ? (
-          <Upload className="w-8 h-8 text-blue-500" />
-        ) : (
-          <FileSpreadsheet className="w-8 h-8 text-gray-400" />
-        )}
-
-        {isProcessing ? (
-          <p className="text-sm text-blue-600 font-medium">Memproses file...</p>
-        ) : isDragActive ? (
-          <p className="text-sm text-blue-600 font-medium">
-            {isDragReject ? 'Format file tidak didukung' : 'Lepaskan file di sini...'}
-          </p>
-        ) : (
-          <>
-            <p className="text-sm font-medium text-gray-600">
-              {label}
+        <div className="flex items-start gap-4">
+          {isProcessing ? (
+            <Loader2 className="w-7 h-7 mt-1 text-blue-600 animate-spin flex-shrink-0" />
+          ) : isDragReject ? (
+            <X className="w-7 h-7 mt-1 text-red-600 flex-shrink-0" />
+          ) : (
+            <Upload className="w-7 h-7 mt-1 text-blue-600 flex-shrink-0" />
+          )}
+          <div>
+            <p className="unggah-judul">
+              {isProcessing
+                ? 'Memproses file...'
+                : isDragActive
+                  ? isDragReject ? 'Format file tidak didukung' : 'Lepaskan file di sini...'
+                  : label}
             </p>
-            {hint && <p className="text-xs text-gray-400">{hint}</p>}
-          </>
-        )}
+            {hint && !isProcessing && !isDragActive && <p className="unggah-sub">{hint}</p>}
+          </div>
+        </div>
       </div>
 
       {acceptedFiles.length > 0 && !isProcessing && (
-        <div className="space-y-1.5">
+        <ul className="baris-daftar">
           {acceptedFiles.map((file) => (
-            <div
-              key={file.name}
-              className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-100"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-blue-500 flex-shrink-0" />
-              <span className="text-sm text-gray-700 truncate flex-1">{file.name}</span>
-              <span className="text-xs text-gray-400 flex-shrink-0">
-                {formatFileSize(file.size)}
-              </span>
-            </div>
+            <li key={file.name}>
+              <FileSpreadsheet className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <span className="text-sm truncate flex-1">{file.name}</span>
+              <span className="kecil angka flex-shrink-0">{formatFileSize(file.size)}</span>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );

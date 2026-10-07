@@ -1,4 +1,3 @@
-import { Eye, ChevronRight } from 'lucide-react';
 import type { ChildRecord } from '../types';
 
 interface PreviewTableProps {
@@ -23,43 +22,36 @@ export function PreviewTable({ children, maxRows = 5, title }: PreviewTableProps
   const totalSheets = new Set(children.map((c) => c.alamat)).size;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/50">
-        <Eye className="w-4 h-4 text-blue-500" />
-        <h3 className="text-sm font-semibold text-gray-700">
-          {title ?? 'Pratinjau Data'}
-        </h3>
-        <span className="ml-auto text-xs text-gray-400">
+    <section className="bagian">
+      <div className="bagian-kepala">
+        <h2>{title ?? 'Pratinjau Data'}</h2>
+        <span className="bagian-info">
           Menampilkan {Math.min(displayRows.length, maxRows)} dari {children.length} anak
           {totalSheets > 1 && ` · ${totalSheets} wilayah`}
         </span>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+      <div className="tabel-wadah">
+        <table className="tabel">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
-              <th className="text-left px-3 py-2 font-medium text-gray-500 w-8">#</th>
+            <tr>
+              <th className="w-8">#</th>
               {COLUMNS.map((col) => (
-                <th key={col.key} className="text-left px-3 py-2 font-medium text-gray-500 whitespace-nowrap">
-                  {col.label}
-                </th>
+                <th key={col.key}>{col.label}</th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody>
             {displayRows.map((child, idx) => (
-              <tr key={`${child.nama}-${child.tanggalLahirStr}`} className="hover:bg-blue-50/30 transition-colors">
-                <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
+              <tr key={`${child.nama}-${child.tanggalLahirStr}`}>
+                <td className="redup angka">{idx + 1}</td>
                 {COLUMNS.map((col) => {
                   const val = child[col.key as keyof ChildRecord];
                   const display = val != null && val !== '' ? String(val) : '—';
                   return (
                     <td
                       key={col.key}
-                      className={`px-3 py-2 text-gray-700 max-w-[180px] truncate ${
-                        display === '—' ? 'text-gray-300 italic' : ''
-                      }`}
+                      className={`max-w-[180px] truncate ${display === '—' ? 'redup' : ''} ${col.key === 'nik' ? 'nik' : ''}`}
                       title={display !== '—' ? display : undefined}
                     >
                       {display}
@@ -73,13 +65,8 @@ export function PreviewTable({ children, maxRows = 5, title }: PreviewTableProps
       </div>
 
       {children.length > maxRows && (
-        <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/30">
-          <p className="text-xs text-gray-400 flex items-center gap-1">
-            <ChevronRight className="w-3 h-3" />
-            {children.length - maxRows} data lainnya tidak ditampilkan
-          </p>
-        </div>
+        <p className="kecil mt-2">{children.length - maxRows} data lainnya tidak ditampilkan, semuanya ikut di file master.</p>
       )}
-    </div>
+    </section>
   );
 }

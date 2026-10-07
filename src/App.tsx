@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { FileSpreadsheet, Download, RotateCcw, Syringe, Calendar, ShieldCheck, Loader2 } from 'lucide-react';
+import { Download, RotateCcw, Loader2 } from 'lucide-react';
 import type { MasterData, UploadLogEntry, ProcessResult, VaccineKey, ChildRecord } from './types';
 import { ALL_SHEETS } from './types';
 import { createEmptyMasterData, parseAndMergeAsikFile } from './utils/asikParser';
@@ -227,364 +227,245 @@ function App() {
     setDataCount(Object.fromEntries(ALL_SHEETS.map((s) => [s, 0])));
   }, []);
 
-  return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center flex-shrink-0 shadow-sm">
-            <Syringe className="w-5 h-5 text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-base font-bold text-gray-900 leading-tight truncate">
-              Imunisasi Master Merger
-            </h1>
-            <p className="text-[11px] text-gray-500">Puskesmas Mabuun — Gabungkan data ASIK ke Master Excel</p>
-          </div>
-          <ShieldCheck className="w-5 h-5 text-emerald-400 flex-shrink-0 hidden sm:block" />
-        </div>
+  const namaSheet = (sheet: string) =>
+    sheet === 'LUAR WILAYAH' ? 'Luar Wil.' : sheet === 'Kejar' ? 'Kejar' : sheet.charAt(0) + sheet.slice(1).toLowerCase();
 
-        {/* Step indicator */}
-        <div className="max-w-4xl mx-auto px-4 pb-4 pt-1">
-          <StepIndicator steps={WORKFLOW_STEPS} currentStep={currentStep} />
+  return (
+    <div className="halaman">
+      <header className="kop">
+        <div>
+          <p className="kop-instansi">Puskesmas Mabu'un · ASIK Excel</p>
+          <h1>Imunisasi Master Merger</h1>
+          <p className="kop-lead">
+            Gabungkan file ASIK per vaksin menjadi satu Master Excel laporan bulanan: pilih periode, masukkan file
+            vaksin, lalu unduh.
+          </p>
         </div>
+        <p className="kop-privasi">
+          File diproses di browser ini saja. Data warga tidak dikirim ke server.
+        </p>
       </header>
 
+      <StepIndicator steps={WORKFLOW_STEPS} currentStep={currentStep} />
+
       {/* Ketentuan & kebijakan data: selalu terlihat sebelum memakai alat */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-4">
-        <div role="note" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
-          <strong>Sebelum memakai:</strong> alat ini khusus petugas kesehatan dan kader yang berwenang. Kami (pengembang){' '}
-          <b>tidak menyimpan, tidak melihat, dan tidak memakai data warga</b>: file diproses di browser Anda dan tidak dikirim
-          ke server. Penanggung jawab data adalah <b>instansi kesehatan</b> pengguna. Hasil otomatis bisa keliru, wajib diperiksa.{' '}
-          <a href="/kebijakan.html" className="font-semibold underline underline-offset-2">Baca ketentuan &amp; kebijakan data</a>
-        </div>
+      <div role="note" className="peringatan">
+        <strong>Sebelum memakai:</strong> alat ini khusus petugas kesehatan dan kader yang berwenang. Kami (pengembang){' '}
+        <b>tidak menyimpan, tidak melihat, dan tidak memakai data warga</b>: file diproses di browser Anda dan tidak dikirim
+        ke server. Penanggung jawab data adalah <b>instansi kesehatan</b> pengguna. Hasil otomatis bisa keliru, wajib diperiksa.{' '}
+        <a href="/kebijakan.html">Baca ketentuan &amp; kebijakan data</a>
       </div>
 
-      <main className="max-w-4xl mx-auto px-4 py-5 space-y-5 pb-12">
-        {/* Step 1: Period */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-shadow hover:shadow-md">
-          <div className={`px-4 py-3 flex items-center gap-2 ${periodLocked ? 'bg-emerald-600' : 'bg-blue-600'}`}>
-            <Calendar className="w-4 h-4 text-white" />
-            <h2 className="text-white font-semibold text-sm flex-1">Periode Laporan</h2>
-            {periodLocked && (
-              <span className="bg-white/20 text-white text-[11px] px-2 py-0.5 rounded-full font-medium">
-                ✓ {BULAN_INDONESIA[month]} {year}
-              </span>
-            )}
+      {/* Step 1: Period */}
+      <section className="bagian">
+        <div className="bagian-kepala">
+          <h2><span className="bagian-no">1</span>Periode Laporan</h2>
+          {periodLocked && <span className="tanda tanda--ok">✓ {BULAN_INDONESIA[month]} {year}</span>}
+        </div>
+        <div className="bagian-isi flex flex-wrap gap-3 items-end">
+          <div className="flex-1 min-w-[140px]">
+            <label className="label" htmlFor="bulan">Bulan</label>
+            <select id="bulan" value={month} onChange={(e) => setMonth(Number(e.target.value))} disabled={periodLocked} className="isian">
+              {BULAN_INDONESIA.slice(1).map((nama, idx) => (
+                <option key={idx + 1} value={idx + 1}>{nama}</option>
+              ))}
+            </select>
           </div>
-          <div className="p-4">
-            <div className="flex gap-3 items-end">
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Bulan</label>
-                <select
-                  value={month}
-                  onChange={(e) => setMonth(Number(e.target.value))}
-                  disabled={periodLocked}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500 transition-colors"
-                >
-                  {BULAN_INDONESIA.slice(1).map((nama, idx) => (
-                    <option key={idx + 1} value={idx + 1}>{nama}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Tahun</label>
-                <select
-                  value={year}
-                  onChange={(e) => setYear(Number(e.target.value))}
-                  disabled={periodLocked}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500 transition-colors"
-                >
-                  {YEARS.map((y) => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                {!periodLocked ? (
-                  <button
-                    onClick={() => setPeriodLocked(true)}
-                    className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:scale-95 transition-all shadow-sm"
-                  >
-                    Konfirmasi
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setPeriodLocked(false)}
-                    className="px-4 py-2 bg-gray-100 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-200 active:scale-95 transition-all"
-                  >
-                    Ubah
-                  </button>
-                )}
-              </div>
-            </div>
+          <div className="flex-1 min-w-[110px]">
+            <label className="label" htmlFor="tahun">Tahun</label>
+            <select id="tahun" value={year} onChange={(e) => setYear(Number(e.target.value))} disabled={periodLocked} className="isian">
+              {YEARS.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
           </div>
-        </section>
+          {!periodLocked ? (
+            <button onClick={() => setPeriodLocked(true)} className="tombol tombol--utama">Konfirmasi</button>
+          ) : (
+            <button onClick={() => setPeriodLocked(false)} className="tombol tombol--garis">Ubah</button>
+          )}
+        </div>
+      </section>
 
-        {/* Step 2: Upload */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-shadow hover:shadow-md">
-          <div className="bg-blue-600 px-4 py-3 flex items-center gap-2">
-            <Syringe className="w-4 h-4 text-white" />
-            <h2 className="text-white font-semibold text-sm flex-1">Upload File Vaksin ASIK</h2>
-            {uploadedCount > 0 && (
-              <span className="bg-white/20 text-white text-[11px] px-2 py-0.5 rounded-full font-medium">
-                {uploadedCount}/{totalVaccines}
-              </span>
-            )}
+      {/* Step 2: Upload */}
+      <section className="bagian">
+        <div className="bagian-kepala">
+          <h2><span className="bagian-no">2</span>Upload File Vaksin ASIK</h2>
+          {uploadedCount > 0 && <span className="bagian-info angka">{uploadedCount}/{totalVaccines} vaksin</span>}
+        </div>
+        <div className="bagian-isi space-y-4">
+          <div>
+            <label className="label" htmlFor="vaksin">
+              Jenis Vaksin <small>(info: otomatis terdeteksi dari Nama Antigen)</small>
+            </label>
+            <select id="vaksin" value={selectedVaccine} onChange={(e) => setSelectedVaccine(e.target.value)} className="isian">
+              {VACCINE_ORDER.map((vk) => (
+                <option key={vk} value={vk}>
+                  {uploadedVaccines.has(vk) ? '✓ ' : ''}{VACCINE_DISPLAY_NAMES[vk]}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="p-4 space-y-3">
-            {/* Vaccine type selector */}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Jenis Vaksin
-                <span className="text-gray-400 font-normal ml-1">(info — otomatis terdeteksi dari Nama Antigen)</span>
-              </label>
-              <select
-                value={selectedVaccine}
-                onChange={(e) => setSelectedVaccine(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {VACCINE_ORDER.map((vk) => (
-                  <option key={vk} value={vk}>
-                    {uploadedVaccines.has(vk) ? '✓ ' : ''}{VACCINE_DISPLAY_NAMES[vk]}
-                  </option>
-                ))}
-              </select>
-            </div>
 
-            {/* Drag & drop zone */}
-            <FileDropzone
-              onFilesAccepted={handleFilesAccepted}
-              disabled={!periodLocked}
-              isProcessing={isProcessing}
-              multiple={true}
-              label="Letakkan file vaksin ASIK di sini, atau klik untuk memilih"
-              hint="Format .xlsx / .xls, bisa beberapa file sekaligus"
-            />
+          <FileDropzone
+            onFilesAccepted={handleFilesAccepted}
+            disabled={!periodLocked}
+            isProcessing={isProcessing}
+            multiple={true}
+            label="Seret file vaksin ASIK ke sini, atau klik untuk memilih"
+            hint="Format .xlsx / .xls, bisa beberapa file sekaligus"
+          />
 
-            {/* Template upload area */}
-            <div className="flex items-center gap-2 pt-1">
-              <input
-                ref={templateFileRef}
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={handleTemplateUpload}
-                className="hidden"
-              />
-              <button
-                onClick={() => templateFileRef.current?.click()}
-                className="text-xs text-blue-600 hover:text-blue-700 underline underline-offset-2 transition-colors"
-              >
-                {templateError && !templateBuffer
-                  ? '⚠ Upload template Master (default gagal dimuat)'
-                  : `Ganti template (${templateName})`}
-              </button>
-              <span className="text-[10px] text-gray-400 ml-auto">
-                {templateBuffer ? '✓ Template siap' : templateError ? '✕ Gagal muat' : 'Memuat default...'}
-              </span>
-            </div>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+            <input ref={templateFileRef} type="file" accept=".xlsx,.xls" onChange={handleTemplateUpload} className="hidden" />
+            <button onClick={() => templateFileRef.current?.click()} className="tautan">
+              {templateError && !templateBuffer
+                ? '⚠ Upload template Master (default gagal dimuat)'
+                : `Ganti template (${templateName})`}
+            </button>
+            <span className="kecil ml-auto">
+              {templateBuffer ? '✓ Template siap' : templateError ? '✕ Gagal muat' : 'Memuat default...'}
+            </span>
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* Data Preview (after upload) */}
-        {totalChildren > 0 && (
-          <PreviewTable children={allChildren} maxRows={5} title="Pratinjau Data Anak" />
-        )}
+      {/* Data Preview (after upload) */}
+      {totalChildren > 0 && (
+        <PreviewTable children={allChildren} maxRows={5} title="Pratinjau Data Anak" />
+      )}
 
-        {/* Upload Log */}
-        {logs.length > 0 && (
-          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="bg-gray-50 px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-700">Log Upload</h3>
-              <span className="text-xs text-gray-400">{logs.length} file</span>
-            </div>
-            <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
-              {logs.map((log) => (
-                <div
-                  key={log.id}
-                  className={`px-4 py-3 flex gap-3 items-start ${
-                    log.status === 'error'
-                      ? 'bg-red-50/50'
-                      : log.status === 'warning'
-                        ? 'bg-amber-50/50'
-                        : ''
+      {/* Upload Log */}
+      {logs.length > 0 && (
+        <section className="bagian">
+          <div className="bagian-kepala">
+            <h2>Log Upload</h2>
+            <span className="bagian-info angka">{logs.length} file</span>
+          </div>
+          <ul className="baris-daftar max-h-72 overflow-y-auto">
+            {logs.map((log) => (
+              <li key={log.id}>
+                <span
+                  className={`tanda ${
+                    log.status === 'success' ? 'tanda--ok' : log.status === 'error' ? 'tanda--galat' : 'tanda--awas'
                   }`}
                 >
-                  <span
-                    className={`mt-0.5 w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${
-                      log.status === 'success'
-                        ? 'bg-emerald-100 text-emerald-600'
-                        : log.status === 'error'
-                          ? 'bg-red-100 text-red-600'
-                          : 'bg-amber-100 text-amber-600'
-                    }`}
-                  >
-                    {log.status === 'success' ? '✓' : log.status === 'error' ? '✕' : '!'}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-medium text-gray-800 truncate">{log.fileName}</span>
-                      <span className="text-xs text-gray-400 flex-shrink-0">{log.processedAt}</span>
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      <span className="font-medium text-blue-600">{log.antigen}</span>
-                      {log.dataCount > 0 && <span className="ml-1">· {log.dataCount} data</span>}
-                    </div>
-                    {log.message && <p className="text-xs text-gray-500 mt-0.5 break-words">{log.message}</p>}
+                  {log.status === 'success' ? '✓' : log.status === 'error' ? '✕' : '!'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-medium truncate">{log.fileName}</span>
+                    <span className="kecil angka flex-shrink-0">{log.processedAt}</span>
                   </div>
+                  <div className="text-sm text-gray-600">
+                    <span className="font-medium text-blue-600">{log.antigen}</span>
+                    {log.dataCount > 0 && <span className="ml-1">· {log.dataCount} data</span>}
+                  </div>
+                  {log.message && <p className="kecil mt-0.5 break-words">{log.message}</p>}
                 </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Vaccine Completion Tracker */}
-        {totalChildren > 0 && (
-          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-blue-500" />
-                <h2 className="text-gray-700 font-semibold text-sm">Kelengkapan Vaksin</h2>
-              </div>
-              <span
-                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                  uploadedCount === totalVaccines
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : 'bg-amber-100 text-amber-700'
-                }`}
-              >
-                {uploadedCount}/{totalVaccines} terupload
-              </span>
-            </div>
-            <div className="p-4 space-y-4">
-              {VACCINE_GROUPS.map((group) => (
-                <div key={group.label}>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                    {group.label}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {group.keys.map((vk) => {
-                      const done = uploadedVaccines.has(vk);
-                      return (
-                        <span
-                          key={vk}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
-                            done
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                              : 'bg-gray-50 border-gray-200 text-gray-400'
-                          }`}
-                        >
-                          {done ? (
-                            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                            </svg>
-                          ) : (
-                            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <circle cx="12" cy="12" r="8" strokeWidth="2" />
-                            </svg>
-                          )}
-                          {VACCINE_DISPLAY_NAMES[vk]}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-              {uploadedCount < totalVaccines && (
-                <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-                  ⚠ {totalVaccines - uploadedCount} vaksin belum ada datanya — tetap bisa diexport,
-                  kolom tersebut akan kosong.
-                </p>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* Data Summary */}
-        {totalChildren > 0 && (
-          <section className="bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
-            <div className="bg-emerald-600 px-4 py-3 flex items-center gap-2">
-              <FileSpreadsheet className="w-4 h-4 text-white" />
-              <h2 className="text-white font-semibold text-sm">
-                Sebaran Data ({totalChildren} anak)
-              </h2>
-              <span className="ml-auto text-emerald-200 text-xs">
-                {BULAN_INDONESIA[month]} {year}
-              </span>
-            </div>
-            <div className="p-4">
-              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-                {ALL_SHEETS.map((sheet) => (
-                  <div key={sheet} className="bg-gray-50 rounded-lg px-2 py-2 text-center hover:bg-gray-100 transition-colors">
-                    <div className="text-lg font-bold text-blue-600">{dataCount[sheet] ?? 0}</div>
-                    <div className="text-xs text-gray-500 leading-tight mt-0.5">
-                      {sheet === 'LUAR WILAYAH'
-                        ? 'Luar Wil.'
-                        : sheet === 'Kejar'
-                          ? 'Kejar'
-                          : sheet.charAt(0) + sheet.slice(1).toLowerCase()}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Download & Reset */}
-        <section className="space-y-3">
-          {totalChildren > 0 && (
-            <button
-              onClick={handleDownload}
-              disabled={!canDownload}
-              className={`w-full py-4 rounded-2xl text-base font-bold transition-all flex items-center justify-center gap-3 ${
-                canDownload
-                  ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white hover:from-emerald-700 hover:to-emerald-600 active:scale-[0.98] shadow-lg shadow-emerald-200'
-                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              {isExporting ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Menyiapkan file...
-                </>
-              ) : (
-                <>
-                  <Download className="w-5 h-5" />
-                  Download Master Excel
-                  <span className="emerald-200 text-sm font-normal hidden sm:inline">
-                    · {totalChildren} anak · {uploadedCount}/{totalVaccines} vaksin
-                  </span>
-                </>
-              )}
-            </button>
-          )}
-
-          {totalChildren > 0 && !templateBuffer && (
-            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-center">
-              ⚠ Template belum tersedia — upload template Master untuk bisa download.
-            </p>
-          )}
-
-          {totalChildren > 0 && (
-            <button
-              onClick={handleReset}
-              className="w-full py-2.5 rounded-xl text-sm text-gray-500 hover:text-red-500 hover:bg-red-50 transition-all border border-gray-100 flex items-center justify-center gap-2"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              Reset Semua Data
-            </button>
-          )}
+              </li>
+            ))}
+          </ul>
         </section>
+      )}
 
-        <div className="text-center text-xs text-gray-400 pb-4 space-y-1">
-          <p>Data diproses sepenuhnya di browser — tidak ada data yang dikirim ke server.</p>
-          <p>Deduplikasi berdasarkan Nama Anak + Tanggal Lahir + Nama Orang Tua.</p>
-        </div>
-        <p className="text-center text-xs text-gray-400 pb-2">
-          <a href="/kebijakan.html" className="underline underline-offset-2">Ketentuan &amp; kebijakan data</a> · Penanggung jawab data: instansi kesehatan pengguna
+      {/* Vaccine Completion Tracker */}
+      {totalChildren > 0 && (
+        <section className="bagian">
+          <div className="bagian-kepala">
+            <h2>Kelengkapan Vaksin</h2>
+            <span className={`tanda ${uploadedCount === totalVaccines ? 'tanda--ok' : 'tanda--awas'}`}>
+              {uploadedCount}/{totalVaccines} terupload
+            </span>
+          </div>
+          <div className="bagian-isi space-y-4">
+            {VACCINE_GROUPS.map((group) => (
+              <div key={group.label}>
+                <p className="label">{group.label}</p>
+                <div className="flex flex-wrap gap-2">
+                  {group.keys.map((vk) => {
+                    const done = uploadedVaccines.has(vk);
+                    return (
+                      <span key={vk} className={`tanda ${done ? 'tanda--ok' : 'tanda--pelan'}`}>
+                        {done ? '✓' : '○'} {VACCINE_DISPLAY_NAMES[vk]}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            {uploadedCount < totalVaccines && (
+              <p className="peringatan">
+                ⚠ {totalVaccines - uploadedCount} vaksin belum ada datanya — tetap bisa diexport,
+                kolom tersebut akan kosong.
+              </p>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Data Summary */}
+      {totalChildren > 0 && (
+        <section className="bagian">
+          <div className="bagian-kepala">
+            <h2><span className="bagian-no">3</span>Sebaran Data</h2>
+            <span className="bagian-info">{BULAN_INDONESIA[month]} {year}</span>
+          </div>
+          <div className="bagian-isi flex flex-wrap items-end gap-x-10 gap-y-5">
+            <div>
+              <span className="angka angka--besar">{totalChildren}</span>
+              <span className="kecil">anak di file master</span>
+            </div>
+            <dl className="rinci-daftar flex-1 min-w-[260px]">
+              {ALL_SHEETS.map((sheet) => (
+                <div key={sheet} className="rinci">
+                  <dt>{namaSheet(sheet)}</dt>
+                  <dd>{dataCount[sheet] ?? 0}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+      )}
+
+      {/* Download & Reset */}
+      {totalChildren > 0 && (
+        <section className="mt-8 space-y-3">
+          <button onClick={handleDownload} disabled={!canDownload} className="tombol tombol--utama tombol--lebar">
+            {isExporting ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Menyiapkan file...
+              </>
+            ) : (
+              <>
+                <Download className="w-5 h-5" />
+                Download Master Excel
+                <span className="font-normal text-sm opacity-80 hidden sm:inline">
+                  · {totalChildren} anak · {uploadedCount}/{totalVaccines} vaksin
+                </span>
+              </>
+            )}
+          </button>
+
+          {!templateBuffer && (
+            <p className="peringatan">⚠ Template belum tersedia — upload template Master untuk bisa download.</p>
+          )}
+
+          <button onClick={handleReset} className="tombol tombol--garis tombol--bahaya w-full">
+            <RotateCcw className="w-4 h-4" />
+            Reset Semua Data
+          </button>
+        </section>
+      )}
+
+      <footer className="kaki">
+        <p>Data diproses sepenuhnya di browser — tidak ada data yang dikirim ke server.</p>
+        <p>Deduplikasi berdasarkan Nama Anak + Tanggal Lahir + Nama Orang Tua.</p>
+        <p>
+          <a href="/kebijakan.html">Ketentuan &amp; kebijakan data</a> · Penanggung jawab data: instansi kesehatan pengguna
         </p>
-      </main>
+      </footer>
 
       {/* Notification Modal */}
       <NotificationModal

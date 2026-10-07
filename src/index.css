@@ -29,17 +29,37 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-:root {
-  --background: 210 40% 98%;
-  --foreground: 222 47% 11%;
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 221 83% 53%;
+/* Palet Daily Tracker: kelas warna bawaan (blue/emerald/gray/amber/red) dipetakan
+   ke kertas, tinta, dan hijau aksen supaya keempat web terlihat satu keluarga. */
+@theme {
+  --color-white: #fffdf8;
+  --color-slate-50: #f7f4ed; --color-slate-200: #d8d0bf;
+  --color-gray-50: #efe9dc; --color-gray-100: #e8e1d2; --color-gray-200: #d8d0bf; --color-gray-300: #b9af9b;
+  --color-gray-400: #858a83; --color-gray-500: #6a706b; --color-gray-600: #4f5752; --color-gray-700: #333a36;
+  --color-gray-800: #1d2320; --color-gray-900: #1d2320;
+  --color-blue-50: #e6efe9; --color-blue-100: #d5e4da; --color-blue-200: #b9cfc1; --color-blue-300: #8fb09e;
+  --color-blue-400: #4f7d68; --color-blue-500: #2b6a50; --color-blue-600: #1f5a43; --color-blue-700: #164433;
+  --color-emerald-50: #e6efe9; --color-emerald-100: #d5e4da; --color-emerald-200: #b9cfc1; --color-emerald-300: #8fb09e;
+  --color-emerald-400: #4f7d68; --color-emerald-500: #2b6a50; --color-emerald-600: #1f5a43; --color-emerald-700: #164433;
+  --color-amber-50: #f8f0dd; --color-amber-100: #f6e9cc; --color-amber-200: #e6d3a6; --color-amber-500: #a6781f;
+  --color-amber-600: #7f570c; --color-amber-700: #6b4a0b; --color-amber-800: #5e430c; --color-amber-900: #5e430c;
+  --color-red-50: #f4ddd8; --color-red-100: #f0d0c9; --color-red-400: #b4584a; --color-red-500: #a03d2e;
+  --color-red-600: #8e2f22; --color-red-700: #7a281d; --color-red-800: #6b2219;
+  --radius-lg: 2px; --radius-xl: 2px; --radius-2xl: 3px;
+  --shadow-sm: none; --shadow-md: none; --shadow-lg: 3px 3px 0 #1d2320; --shadow-2xl: 6px 6px 0 #1d2320;
+}
 
-  --card: 0 0% 100%;
+:root {
+  --background: 43 41% 95%;
+  --foreground: 150 9% 12%;
+  --border: 41 23% 80%;
+  --input: 41 23% 80%;
+  --ring: 157 49% 24%;
+
+  --card: 43 100% 99%;
   --card-foreground: 222 47% 11%;
 
-  --primary: 221 83% 53%;
+  --primary: 157 49% 24%;
   --primary-foreground: 0 0% 100%;
 
   --secondary: 210 40% 96%;
@@ -54,8 +74,8 @@
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
 
-  --app-font-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  --app-font-mono: 'Menlo', 'Consolas', monospace;
+  --app-font-sans: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+  --app-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
   --radius: 0.625rem;
 }
 
@@ -65,5 +85,8 @@
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;
+  }
+  h1, h2 {
+    font-family: 'Source Serif 4', Georgia, serif;
   }
 }
